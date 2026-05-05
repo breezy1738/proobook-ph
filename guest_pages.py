@@ -261,14 +261,16 @@ def _save_booking(user, prop_id, prop_type, room_id,
         conn = get_conn()
         cur = conn.cursor()
 
-        # Block if guest already has an active booking on this property
+        # Block if guest already has any active booking with the same owner
         cur.execute(adapt_sql("""
-            SELECT id FROM bookings
-            WHERE guest_id = %s
-              AND property_id = %s
-              AND status IN ('pending', 'confirmed')
+            SELECT b.id FROM bookings b
+            JOIN properties p ON b.property_id = p.id
+            JOIN properties target ON target.id = %s
+            WHERE b.guest_id = %s
+              AND p.owner_id = target.owner_id
+              AND b.status IN ('pending', 'confirmed')
             LIMIT 1
-        """), (int(float(user['id'])), prop_id))
+        """), (prop_id, int(float(user['id']))))
         existing = cur.fetchone()
 
         if existing:
@@ -277,8 +279,8 @@ def _save_booking(user, prop_id, prop_type, room_id,
             else:
                 conn.close()
             st.error(
-                "❌ You already have an active booking for this property. "
-                "Please wait until your current booking is completed or cancelled before booking again."
+                "❌ You already have an active booking with this property owner. "
+                "Please complete or cancel your current booking before booking another property from the same owner."
             )
             return
 
@@ -332,16 +334,19 @@ def _booking_form(prop, user):
 
     st.markdown(f"### 📅 Book: {prop_title}")
 
-    # Block if guest already has an active booking
+    # Block if guest already has any active booking with the same owner
     _chk = get_conn()
     try:
         _cur = _chk.cursor()
         _cur.execute(adapt_sql("""
-            SELECT id FROM bookings
-            WHERE guest_id = %s AND property_id = %s
-              AND status IN ('pending', 'confirmed')
+            SELECT b.id FROM bookings b
+            JOIN properties p ON b.property_id = p.id
+            JOIN properties target ON target.id = %s
+            WHERE b.guest_id = %s
+              AND p.owner_id = target.owner_id
+              AND b.status IN ('pending', 'confirmed')
             LIMIT 1
-        """), (int(float(user['id'])), prop_id))
+        """), (prop_id, int(float(user['id']))))
         _active = _cur.fetchone()
     finally:
         if USE_POSTGRES:
@@ -350,8 +355,8 @@ def _booking_form(prop, user):
             _chk.close()
     if _active:
         st.error(
-            "❌ You already have an active booking for this property. "
-            "Please wait until your current booking is completed or cancelled before booking again."
+            "❌ You already have an active booking with this property owner. "
+            "Please complete or cancel your current booking before booking another property from the same owner."
         )
         if st.button("✖ Close", key="bk_close_dup"):
             st.session_state.pop('show_booking_modal', None)
