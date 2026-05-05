@@ -406,30 +406,172 @@ def admin_users():
 
 
 def admin_bookings():
-    st.markdown('<div class="section-header">📋 All Bookings</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📋 All Guest Bookings</div>', unsafe_allow_html=True)
+
     df = df_query("""
-        SELECT b.id, u.name as guest_name, p.title as property, r.room_number,
+        SELECT b.id, b.guest_id,
+               u.name as guest_name, u.email as guest_email, u.phone as guest_phone,
+               p.title as property_title, p.city as property_city, p.type as property_type,
+               ow.name as owner_name, ow.email as owner_email,
+               r.room_number,
                b.check_in, b.check_out, b.booking_type, b.total_price,
-               b.status, b.payment_method, b.payment_status, b.created_at
+               b.status, b.payment_method, b.payment_status,
+               b.special_requests, b.created_at
         FROM bookings b
         JOIN users u ON b.guest_id = u.id
         JOIN properties p ON b.property_id = p.id
+        JOIN users ow ON p.owner_id = ow.id
         LEFT JOIN rooms r ON b.room_id = r.id
         ORDER BY b.created_at DESC
     """)
 
     if df.empty:
-        st.info("No bookings yet.")
+        st.info("No bookings on the platform yet.")
         return
 
-    col1, col2, col3 = st.columns(3)
-    with col1: st.markdown(metric_card(len(df), "Total Bookings", "📋"), unsafe_allow_html=True)
-    with col2: st.markdown(metric_card(len(df[df['status']=='confirmed']), "Confirmed", "✅"), unsafe_allow_html=True)
-    with col3: st.markdown(metric_card(f"₱{df[df['payment_status']=='paid']['total_price'].sum():,.0f}", "Collected", "💰"), unsafe_allow_html=True)
+    # ── Numeric coercion ──────────────────────────────────────────────────────
+    df['total_price'] = pd.to_numeric(df['total_price'], errors='coerce').fillna(0)
+    df['id'] = pd.to_numeric(df['id'], errors='coerce').fillna(0).astype(int)
+
+    # ── Summary metrics ───────────────────────────────────────────────────────
+    total_confirmed  = len(df[df['status'] == 'confirmed'])
+    total_pending    = len(df[df['status'] == 'pending'])
+    total_cancelled  = len(df[df['status'] == 'cancelled'])
+    total_collected  = df[df['payment_status'] == 'paid']['total_price'].sum()
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    with c1: st.markdown(metric_card(len(df),          "Total Bookings",  "📋"), unsafe_allow_html=True)
+    with c2: st.markdown(metric_card(total_confirmed,   "Confirmed",       "✅"), unsafe_allow_html=True)
+    with c3: st.markdown(metric_card(total_pending,     "Pending",         "⏳"), unsafe_allow_html=True)
+    with c4: st.markdown(metric_card(total_cancelled,   "Cancelled",       "❌"), unsafe_allow_html=True)
+    with c5: st.markdown(metric_card(f"₱{total_collected:,.0f}", "Collected", "💰"), unsafe_allow_html=True)
 
     st.markdown("---")
-    st.caption("👁️ View only — admin cannot edit bookings per policy")
-    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    # ── Filters ───────────────────────────────────────────────────────────────
+    st.markdown("**🔍 Filter & Search**")
+    fcol1, fcol2, fcol3, fcol4 = st.columns([2, 1, 1, 1])
+    with fcol1:
+        search = st.text_input("Search guest name, email, or property", placeholder="e.g. Juan, ocean, manila…", label_visibility="collapsed")
+    with fcol2:
+        status_filter = st.selectbox("Status", ["All", "confirmed", "pending", "cancelled", "rejected"], label_visibility="collapsed")
+    with fcol3:
+        payment_filter = st.selectbox("Payment", ["All", "paid", "pending", "walk-in"], label_visibility="collapsed")
+    with fcol4:
+        type_filter = st.selectbox("Booking Type", ["All", "nightly", "monthly"], label_visibility="collapsed")
+
+    # Apply filters
+    fdf = df.copy()
+    if search:
+        q = search.lower()
+        fdf = fdf[
+            fdf['guest_name'].str.lower().str.contains(q, na=False) |
+            fdf['guest_email'].str.lower().str.contains(q, na=False) |
+            fdf['property_title'].str.lower().str.contains(q, na=False) |
+            fdf['property_city'].str.lower().str.contains(q, na=False)
+        ]
+    if status_filter != "All":
+        fdf = fdf[fdf['status'] == status_filter]
+    if payment_filter != "All":
+        fdf = fdf[fdf['payment_status'] == payment_filter]
+    if type_filter != "All":
+        fdf = fdf[fdf['booking_type'] == type_filter]
+
+    st.caption(f"Showing **{len(fdf)}** of **{len(df)}** bookings  |  👁️ View-only — admin cannot edit bookings per policy")
+    st.markdown("---")
+
+    if fdf.empty:
+        st.info("No bookings match your filters.")
+        return
+
+    # ── Status styling helpers ────────────────────────────────────────────────
+    _STATUS_ICON  = {"confirmed": "✅", "pending": "⏳", "cancelled": "❌", "rejected": "🚫"}
+    _PAYMENT_ICON = {"paid": "💳", "pending": "⏰", "walk-in": "🚶"}
+    _STATUS_COLOR = {
+        "confirmed": "#dcfce7",
+        "pending":   "#fef9c3",
+        "cancelled": "#fee2e2",
+        "rejected":  "#f3f4f6",
+    }
+    _STATUS_BORDER = {
+        "confirmed": "#16a34a",
+        "pending":   "#ca8a04",
+        "cancelled": "#dc2626",
+        "rejected":  "#6b7280",
+    }
+
+    # ── Per-booking expandable cards ──────────────────────────────────────────
+    for _, row in fdf.iterrows():
+        s_icon  = _STATUS_ICON.get(row['status'], "•")
+        p_icon  = _PAYMENT_ICON.get(row['payment_status'], "•")
+        room_lbl = f"Room {row['room_number']} · " if row.get('room_number') else ""
+        btype_lbl = row['booking_type'].title() if row.get('booking_type') else "—"
+        border_c = _STATUS_BORDER.get(row['status'], "#e5e7eb")
+        bg_c     = _STATUS_COLOR.get(row['status'], "#ffffff")
+
+        label = (
+            f"#{int(row['id'])}  ·  👤 {row['guest_name']}  ·  "
+            f"🏘️ {row['property_title']}  ·  "
+            f"📅 {str(row['check_in'])[:10]} → {str(row['check_out'])[:10]}  ·  "
+            f"{s_icon} {row['status'].title()}  ·  ₱{float(row['total_price']):,.0f}"
+        )
+
+        with st.expander(label, expanded=False):
+            st.markdown(
+                f'<div style="border-left:4px solid {border_c};background:{bg_c};'
+                f'padding:0.6rem 1rem;border-radius:6px;margin-bottom:0.75rem;">'
+                f'<b>{s_icon} {row["status"].title()}</b> &nbsp;|&nbsp; '
+                f'{p_icon} Payment: <b>{row["payment_status"].title()}</b> &nbsp;|&nbsp; '
+                f'🏷️ {btype_lbl}'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+            col_g, col_b, col_p = st.columns(3)
+
+            with col_g:
+                st.markdown("**👤 Guest Details**")
+                st.markdown(f"**Name:** {row['guest_name']}")
+                st.markdown(f"**Email:** {row['guest_email']}")
+                st.markdown(f"**Phone:** {row.get('guest_phone') or '—'}")
+
+            with col_b:
+                st.markdown("**📋 Booking Details**")
+                st.markdown(f"**Booking #:** {int(row['id'])}")
+                st.markdown(f"**Check-in:** {str(row['check_in'])[:10]}")
+                st.markdown(f"**Check-out:** {str(row['check_out'])[:10]}")
+                st.markdown(f"**Type:** {btype_lbl}")
+                if row.get('room_number'):
+                    st.markdown(f"**Room:** {row['room_number']}")
+                st.markdown(f"**Booked on:** {str(row['created_at'])[:16]}")
+
+            with col_p:
+                st.markdown("**🏘️ Property & Payment**")
+                st.markdown(f"**Property:** {row['property_title']}")
+                st.markdown(f"**City:** {row['property_city']}")
+                st.markdown(f"**Owner:** {row['owner_name']}")
+                st.markdown(f"**Owner Email:** {row['owner_email']}")
+                st.markdown(f"**Total:** ₱{float(row['total_price']):,.0f}")
+                st.markdown(f"**Method:** {row.get('payment_method') or '—'}")
+                st.markdown(f"**Payment Status:** {p_icon} {row['payment_status'].title()}")
+
+            if row.get('special_requests') and str(row['special_requests']).strip():
+                st.markdown(f"**💬 Special Requests:** {row['special_requests']}")
+
+    # ── Raw data table (collapsible) ──────────────────────────────────────────
+    st.markdown("---")
+    with st.expander("📊 View as Data Table"):
+        display_cols = ['id', 'guest_name', 'guest_email', 'property_title', 'property_city',
+                        'owner_name', 'check_in', 'check_out', 'booking_type',
+                        'total_price', 'status', 'payment_method', 'payment_status', 'created_at']
+        st.dataframe(fdf[display_cols].rename(columns={
+            'id': 'Booking #', 'guest_name': 'Guest', 'guest_email': 'Guest Email',
+            'property_title': 'Property', 'property_city': 'City',
+            'owner_name': 'Owner', 'check_in': 'Check-in', 'check_out': 'Check-out',
+            'booking_type': 'Type', 'total_price': 'Total (₱)',
+            'status': 'Status', 'payment_method': 'Pay Method',
+            'payment_status': 'Pay Status', 'created_at': 'Booked On'
+        }), use_container_width=True, hide_index=True)
 
     # ── Automatic Refund Log ───────────────────────────────────────────────────
     st.markdown("---")
