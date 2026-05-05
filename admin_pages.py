@@ -407,9 +407,10 @@ def admin_bookings():
     # Ensure table exists
     _acx = get_conn()
     try:
-        _acx.cursor().execute("""
+        _pk = "SERIAL PRIMARY KEY" if USE_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        _acx.cursor().execute(f"""
             CREATE TABLE IF NOT EXISTS refunds (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {_pk},
                 booking_id INTEGER NOT NULL UNIQUE,
                 guest_id INTEGER NOT NULL,
                 amount REAL NOT NULL,
