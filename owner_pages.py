@@ -157,66 +157,63 @@ def owner_properties(user):
         _blocked_label = " | 🚫 BLOCKED BY ADMIN" if _is_blocked else ""
         with st.expander(f"{property_emoji(row['type'])} {row['title']} | {_sicon} {row['status'].title()}{_blocked_label}", expanded=False):
             if _is_blocked:
-                st.error("🚫 This property has been **blocked by the admin**. You cannot edit it or put it under maintenance. Contact support if you believe this is a mistake.")
-            elif row['status'] == 'approved':
-                # ── Under Maintenance toggle (owner-controlled, only when NOT blocked) ──
-                prop_id_m = _int(row['id'])
-                is_active_m = int(row.get('is_active', 1))
-                if is_active_m == 1:
-                    if st.button("🔧 Put Under Maintenance", key=f"maint_on_{prop_id_m}"):
-                        c = get_conn()
-                        cur = c.cursor()
-                        cur.execute(adapt_sql("UPDATE properties SET is_active=0 WHERE id=%s"), (prop_id_m,))
-                        c.commit(); release_conn(c) if USE_POSTGRES else c.close()
-                        st.warning("Property is now under maintenance — guests cannot book it."); st.rerun()
-                else:
-                    st.warning("🔧 This property is currently **under maintenance**. Guests cannot view or book it.")
-                    if st.button("✅ Mark as Available", key=f"maint_off_{prop_id_m}"):
-                        c = get_conn()
-                        cur = c.cursor()
-                        cur.execute(adapt_sql("UPDATE properties SET is_active=1 WHERE id=%s"), (prop_id_m,))
-                        c.commit(); release_conn(c) if USE_POSTGRES else c.close()
-                        st.success("Property is now available for booking!"); st.rerun()
-            # Blocked: show Details only — no Rooms or Edit access
-            if _is_blocked:
-                tabs = st.tabs(["📋 Details"])
+                st.error("🚫 This property has been **blocked by the admin**. All details and editing are hidden until the admin unblocks it. Contact support if you believe this is a mistake.")
             else:
+                if row['status'] == 'approved':
+                    # ── Under Maintenance toggle (owner-controlled, only when NOT blocked) ──
+                    prop_id_m = _int(row['id'])
+                    is_active_m = int(row.get('is_active', 1))
+                    if is_active_m == 1:
+                        if st.button("🔧 Put Under Maintenance", key=f"maint_on_{prop_id_m}"):
+                            c = get_conn()
+                            cur = c.cursor()
+                            cur.execute(adapt_sql("UPDATE properties SET is_active=0 WHERE id=%s"), (prop_id_m,))
+                            c.commit(); release_conn(c) if USE_POSTGRES else c.close()
+                            st.warning("Property is now under maintenance — guests cannot book it."); st.rerun()
+                    else:
+                        st.warning("🔧 This property is currently **under maintenance**. Guests cannot view or book it.")
+                        if st.button("✅ Mark as Available", key=f"maint_off_{prop_id_m}"):
+                            c = get_conn()
+                            cur = c.cursor()
+                            cur.execute(adapt_sql("UPDATE properties SET is_active=1 WHERE id=%s"), (prop_id_m,))
+                            c.commit(); release_conn(c) if USE_POSTGRES else c.close()
+                            st.success("Property is now available for booking!"); st.rerun()
+
                 tabs = st.tabs(["📋 Details", "🛏️ Rooms", "✏️ Edit"])
 
-            with tabs[0]:
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown(f"**City:** {row['city']}")
-                    st.markdown(f"**Address:** {row['address']}, {row['barangay']}")
-                    st.markdown(f"**Type:** {row['type'].title()}")
-                    st.markdown(f"**Max Guests:** {row['max_guests']}")
-                    st.markdown(f"**Bedrooms:** {row['bedrooms']} | **Bathrooms:** {row['bathrooms']}")
-                with col2:
-                    st.markdown(f"**Nightly:** ₱{row['nightly_price']:,.0f}")
-                    st.markdown(f"**Monthly:** ₱{row['monthly_price']:,.0f}")
-                    st.markdown(f"**Status:** {status_badge(row['status'])}", unsafe_allow_html=True)
-                    if row['amenities']:
-                        st.markdown("**Amenities:**")
-                        ams = row['amenities'].split(',')
-                        st.markdown(" ".join([f'<span class="amenity-tag">{a.strip()}</span>' for a in ams]), unsafe_allow_html=True)
-                if row['description']:
-                    st.markdown(f"**Description:** {row['description']}")
+                with tabs[0]:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown(f"**City:** {row['city']}")
+                        st.markdown(f"**Address:** {row['address']}, {row['barangay']}")
+                        st.markdown(f"**Type:** {row['type'].title()}")
+                        st.markdown(f"**Max Guests:** {row['max_guests']}")
+                        st.markdown(f"**Bedrooms:** {row['bedrooms']} | **Bathrooms:** {row['bathrooms']}")
+                    with col2:
+                        st.markdown(f"**Nightly:** ₱{row['nightly_price']:,.0f}")
+                        st.markdown(f"**Monthly:** ₱{row['monthly_price']:,.0f}")
+                        st.markdown(f"**Status:** {status_badge(row['status'])}", unsafe_allow_html=True)
+                        if row['amenities']:
+                            st.markdown("**Amenities:**")
+                            ams = row['amenities'].split(',')
+                            st.markdown(" ".join([f'<span class="amenity-tag">{a.strip()}</span>' for a in ams]), unsafe_allow_html=True)
+                    if row['description']:
+                        st.markdown(f"**Description:** {row['description']}")
 
-                # Show photos in details tab
-                images_json = row.get('images') or ''
-                if images_json:
-                    try:
-                        imgs = json.loads(images_json)
-                        if imgs:
-                            st.markdown("**📸 Photos:**")
-                            pcols = st.columns(min(len(imgs), 3))
-                            for pi, img_data in enumerate(imgs[:3]):
-                                with pcols[pi % 3]:
-                                    st.image(img_data, use_container_width=True)
-                    except Exception:
-                        pass
+                    # Show photos in details tab
+                    images_json = row.get('images') or ''
+                    if images_json:
+                        try:
+                            imgs = json.loads(images_json)
+                            if imgs:
+                                st.markdown("**📸 Photos:**")
+                                pcols = st.columns(min(len(imgs), 3))
+                                for pi, img_data in enumerate(imgs[:3]):
+                                    with pcols[pi % 3]:
+                                        st.image(img_data, use_container_width=True)
+                        except Exception:
+                            pass
 
-            if not _is_blocked:
                 with tabs[1]:
                     if row['type'] == 'apartment':
                         _manage_rooms(_int(row['id']))
