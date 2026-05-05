@@ -185,7 +185,7 @@ def _property_card(row, user):
 
     _card_html = (
         "<div class='property-card' style='" + ("opacity:0.75;" if fully_booked else "") + "'>"
-        "<div class='property-img' style='padding:0;overflow:hidden;'>" + (photo_html if photo_html else emoji) + "</div>"
+        "<div class='property-img' style='padding:0;overflow:hidden;" + ("display:block;" if photo_html else "") + "'>" + (photo_html if photo_html else emoji) + "</div>"
         + ("<div style='background:#dc2626;color:white;text-align:center;font-size:0.78rem;font-weight:700;padding:0.3rem;letter-spacing:0.05em;'>🚫 ALL ROOMS CURRENTLY BOOKED</div>" if fully_booked else "")
         + ("<div style='background:#d97706;color:white;text-align:center;font-size:0.78rem;font-weight:700;padding:0.3rem;letter-spacing:0.05em;'>⚠️ PARTIALLY BOOKED — OTHER DATES AVAILABLE</div>" if house_occupied else "")
         + "<div class='property-body'>"
