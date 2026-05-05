@@ -7,6 +7,35 @@ from ml_model import predict_trending_properties, process_new_booking
 from datetime import datetime, timedelta, date
 
 
+# ── Refund table bootstrap (idempotent) ───────────────────────────────────────
+def _ensure_refunds_table():
+    """Create the refunds table if it doesn't exist yet."""
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS refunds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                booking_id INTEGER NOT NULL UNIQUE,
+                guest_id INTEGER NOT NULL,
+                amount REAL NOT NULL,
+                reason TEXT,
+                status TEXT DEFAULT 'pending',
+                owner_note TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                resolved_at TIMESTAMP,
+                FOREIGN KEY (booking_id) REFERENCES bookings(id),
+                FOREIGN KEY (guest_id) REFERENCES users(id)
+            )
+        """)
+        conn.commit()
+    finally:
+        release_conn(conn) if USE_POSTGRES else conn.close()
+
+
+_ensure_refunds_table()
+
+
 def browse_properties(user=None):
     st.markdown('<div class="section-header">🔍 Browse Properties</div>', unsafe_allow_html=True)
 
@@ -761,6 +790,42 @@ def _booking_form(prop, user):
             st.rerun()
 
 
+def _auto_refund(row, user, refund_amt):
+    """
+    Instantly cancel a booking and mark the online payment as refunded.
+    No owner approval needed — simulates an immediate payment gateway reversal.
+    """
+    from datetime import datetime as _dt
+    booking_id = int(float(row['id']))
+    guest_id   = int(float(user['id']))
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        # 1. Cancel the booking and mark payment_status = 'refunded'
+        cur.execute(adapt_sql(
+            "UPDATE bookings SET status='cancelled', payment_status='refunded' WHERE id=%s"
+        ), (booking_id,))
+        # 2. Record the refund as already approved (auto)
+        try:
+            cur.execute(adapt_sql(
+                "INSERT INTO refunds (booking_id, guest_id, amount, reason, status, owner_note, resolved_at) "
+                "VALUES (%s,%s,%s,%s,'approved','Automatic refund — processed instantly',%s)"
+            ), (booking_id, guest_id, refund_amt, 'Guest cancelled booking', _dt.now().isoformat()))
+        except Exception:
+            # Row already exists (duplicate safeguard) — just update it
+            cur.execute(adapt_sql(
+                "UPDATE refunds SET status='approved', resolved_at=%s WHERE booking_id=%s"
+            ), (_dt.now().isoformat(), booking_id))
+        conn.commit()
+    finally:
+        if USE_POSTGRES:
+            release_conn(conn)
+        else:
+            conn.close()
+    st.success(f"✅ Booking cancelled. ₱{refund_amt:,.0f} has been automatically refunded to your card.")
+    st.rerun()
+
+
 def guest_bookings(user):
     st.markdown('<div class="section-header">📋 My Bookings</div>', unsafe_allow_html=True)
     df = df_query("""
@@ -932,19 +997,72 @@ def guest_bookings(user):
                         st.markdown('<div class="alert-box alert-success">✅ Fully paid</div>', unsafe_allow_html=True)
 
                     if row['status'] == 'pending':
-                        if st.button("❌ Cancel Booking", key=f"cancel_{tab_key}_{row['id']}"):
-                            c = get_conn()
-                            try:
-                                cur = c.cursor()
-                                cur.execute(adapt_sql("UPDATE bookings SET status='cancelled' WHERE id=%s"), (int(float(row['id'])),))
-                                c.commit()
-                            finally:
-                                if USE_POSTGRES:
-                                    release_conn(c)
-                                else:
-                                    c.close()
-                            st.warning("Booking cancelled.")
-                            st.rerun()
+                        _is_online_paid = (
+                            row['payment_method'] == 'online' and
+                            row.get('payment_status') in ('down_paid', 'paid')
+                        )
+                        _is_fully_paid = row.get('payment_status') == 'paid'
+                        _refund_amt = float(row.get('total_price') or 0) if _is_fully_paid else float(row.get('down_payment') or 0)
+
+                        if _is_online_paid:
+                            # Show refund preview before confirming
+                            st.markdown(f"""
+                            <div style="background:#fef2f2;border:1.5px solid #dc2626;border-radius:12px;
+                                        padding:0.9rem 1.1rem;margin:0.5rem 0;font-size:0.88rem;">
+                                <b style="color:#dc2626;">⚠️ Cancel this booking?</b><br>
+                                <span style="color:#7f1d1d;">
+                                    {'Full payment' if _is_fully_paid else 'Down payment'} of
+                                    <b>₱{_refund_amt:,.0f}</b> will be
+                                    <b>automatically refunded</b> to your card instantly.
+                                </span>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            col_ca, col_cb = st.columns(2)
+                            with col_ca:
+                                if st.button(f"❌ Cancel & Refund ₱{_refund_amt:,.0f}", key=f"cancel_{tab_key}_{row['id']}", use_container_width=True):
+                                    _auto_refund(row, user, _refund_amt)
+                            with col_cb:
+                                st.caption("Refund is instant — no waiting required.")
+                        else:
+                            if st.button("❌ Cancel Booking", key=f"cancel_{tab_key}_{row['id']}"):
+                                c = get_conn()
+                                try:
+                                    cur = c.cursor()
+                                    cur.execute(adapt_sql("UPDATE bookings SET status='cancelled' WHERE id=%s"), (int(float(row['id'])),))
+                                    c.commit()
+                                finally:
+                                    if USE_POSTGRES:
+                                        release_conn(c)
+                                    else:
+                                        c.close()
+                                st.warning("Booking cancelled.")
+                                st.rerun()
+
+                    # ── Auto-refund receipt for cancelled online-paid bookings ──
+                    if row['status'] == 'cancelled' and row['payment_method'] == 'online' and row.get('payment_status') == 'refunded':
+                        _rc = get_conn()
+                        try:
+                            _rcur = _rc.cursor()
+                            _rcur.execute(adapt_sql("SELECT * FROM refunds WHERE booking_id=%s"), (int(float(row['id'])),))
+                            _rrow = _rcur.fetchone()
+                            _refund_data = dict(_rrow) if _rrow else None
+                        finally:
+                            if USE_POSTGRES:
+                                release_conn(_rc)
+                            else:
+                                _rc.close()
+
+                        if _refund_data:
+                            _ref_ts = str(_refund_data.get('created_at', ''))[:16]
+                            st.markdown(f"""
+                            <div style="background:#dcfce7;border:1.5px solid #16a34a;border-radius:12px;
+                                        padding:0.85rem 1rem;margin-top:0.5rem;font-size:0.88rem;color:#14532d;">
+                                ✅ <b>Refund of ₱{float(_refund_data['amount']):,.0f} processed automatically</b><br>
+                                <span style="opacity:0.8;font-size:0.82rem;">
+                                    Credited back to your card · {_ref_ts}
+                                </span>
+                            </div>
+                            """, unsafe_allow_html=True)
 
                     if row['status'] == 'confirmed':
                         label = '🚪 Leave / Move Out' if row.get('is_open_ended') else '🚪 Check Out'
