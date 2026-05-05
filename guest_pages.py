@@ -955,14 +955,52 @@ def guest_profile(user):
 
     col1, col2 = st.columns([1, 2])
     with col1:
+        avatar = u.get('avatar') or ''
+        if avatar:
+            avatar_html = (
+                f"<img src='{avatar}' style='width:100px;height:100px;"
+                f"border-radius:50%;object-fit:cover;border:3px solid #0f2a4a;display:block;margin:0 auto 0.75rem;'>"
+            )
+        else:
+            avatar_html = "<div style='font-size:4rem;text-align:center'>👤</div>"
+
         st.markdown(f"""
-        <div class="metric-card" style="padding:2rem">
-            <div style="font-size:4rem">👤</div>
+        <div class="metric-card" style="padding:2rem;text-align:center">
+            {avatar_html}
             <div style="font-family:'Playfair Display',serif;font-size:1.2rem;font-weight:700">{u['name']}</div>
             <div style="color:#6b7280">{u['role'].title()}</div>
             <div style="color:#6b7280;font-size:0.85rem">Member since {str(u['created_at'])[:10]}</div>
         </div>
         """, unsafe_allow_html=True)
+
+        st.markdown("**📷 Change Profile Photo**")
+        uploaded_avatar = st.file_uploader(
+            "Upload photo (JPG or PNG)",
+            type=["jpg", "jpeg", "png"],
+            key="avatar_upload"
+        )
+        if uploaded_avatar:
+            import base64 as _b64
+            uploaded_avatar.seek(0)
+            b64 = _b64.b64encode(uploaded_avatar.read()).decode('utf-8')
+            avatar_data = f"data:{uploaded_avatar.type};base64,{b64}"
+            st.image(avatar_data, width=100)
+            if st.button("✅ Save Photo"):
+                c3 = get_conn()
+                try:
+                    c3.cursor().execute(
+                        adapt_sql("UPDATE users SET avatar=%s WHERE id=%s"),
+                        (avatar_data, u['id'])
+                    )
+                    c3.commit()
+                    st.session_state['user']['avatar'] = avatar_data
+                    st.success("Profile photo updated!")
+                    st.rerun()
+                finally:
+                    if USE_POSTGRES:
+                        release_conn(c3)
+                    else:
+                        c3.close()
 
     with col2:
         with st.form("profile_form"):
