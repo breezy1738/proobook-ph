@@ -18,7 +18,22 @@ import math
 from contextlib import contextmanager
 
 # ── Driver selection ───────────────────────────────────────────────────────────
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
+def _get_database_url() -> str:
+    """
+    Read DATABASE_URL from environment or Streamlit secrets.
+    On Streamlit Cloud, secrets are NOT automatically injected into os.environ,
+    so we must check st.secrets explicitly as a fallback.
+    """
+    url = os.environ.get("DATABASE_URL", "")
+    if not url:
+        try:
+            import streamlit as st
+            url = st.secrets["DATABASE_URL"] if "DATABASE_URL" in st.secrets else ""
+        except Exception:
+            pass
+    return url
+
+DATABASE_URL = _get_database_url()
 
 USE_POSTGRES = bool(DATABASE_URL)
 
