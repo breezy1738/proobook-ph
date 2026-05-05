@@ -173,9 +173,10 @@ def owner_properties(user):
         _maint_label = " | 🔧 MAINTENANCE" if _is_maintenance else ""
         _blocked_label = " | 🚫 BLOCKED" if _is_blocked else ""
         with st.expander(f"{property_emoji(row['type'])} {row['title']} | {_sicon} {row['status'].title()}{_blocked_label}{_maint_label}", expanded=False):
-            if _is_blocked and row.get('status') == 'approved':
+            if _is_blocked:
                 st.error("🚫 This property has been **blocked by the admin**. Guests cannot view or book it until the admin unblocks it. Contact support if you believe this is a mistake.")
-            if row['status'] == 'approved':
+
+            if row['status'] == 'approved' and not _is_blocked:
                 # ── Under Maintenance toggle (owner-controlled) ────────────────
                 prop_id_m = _int(row['id'])
                 if not _is_maintenance:
@@ -194,7 +195,11 @@ def owner_properties(user):
                         c.commit(); release_conn(c) if USE_POSTGRES else c.close()
                         st.success("Property is now available for booking!"); st.rerun()
 
-            tabs = st.tabs(["📋 Details", "🛏️ Rooms", "✏️ Edit"])
+            # When blocked by admin: show Details only, lock Rooms and Edit
+            if _is_blocked:
+                tabs = st.tabs(["📋 Details"])
+            else:
+                tabs = st.tabs(["📋 Details", "🛏️ Rooms", "✏️ Edit"])
 
             with tabs[0]:
                 col1, col2 = st.columns(2)
@@ -229,14 +234,15 @@ def owner_properties(user):
                     except Exception:
                         pass
 
-            with tabs[1]:
-                if row['type'] == 'apartment':
-                    _manage_rooms(_int(row['id']))
-                else:
-                    st.info("Room management is for apartment-type properties only.")
+            if not _is_blocked:
+                with tabs[1]:
+                    if row['type'] == 'apartment':
+                        _manage_rooms(_int(row['id']))
+                    else:
+                        st.info("Room management is for apartment-type properties only.")
 
-            with tabs[2]:
-                _edit_property(row, idx)
+                with tabs[2]:
+                    _edit_property(row, idx)
 
 
 def _manage_rooms(property_id):
