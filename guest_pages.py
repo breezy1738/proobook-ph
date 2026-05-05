@@ -137,18 +137,20 @@ def browse_properties(user=None):
 def _property_card(row, user):
     emoji = property_emoji(row['type'])
 
-    # ── Show property photos if available ──────────────────────────────────
+    # Build photo HTML — replaces the emoji icon inside .property-img
     images_json = row.get('images') or ''
-    if images_json:
-        try:
+    photo_html = ''
+    try:
+        if images_json:
             imgs = json.loads(images_json)
             if imgs:
-                photo_cols = st.columns(min(len(imgs), 3))
-                for pi, img_data in enumerate(imgs[:3]):
-                    with photo_cols[pi]:
-                        st.image(img_data, use_container_width=True)
-        except Exception:
-            pass
+                # Show first image filling the card header slot
+                photo_html = (
+                    f"<img src='{imgs[0]}' style='width:100%;height:190px;"
+                    f"object-fit:cover;display:block;' alt='property photo'>"
+                )
+    except Exception:
+        pass
 
 
     is_apartment = row['type'] == 'apartment'
@@ -183,7 +185,7 @@ def _property_card(row, user):
 
     _card_html = (
         "<div class='property-card' style='" + ("opacity:0.75;" if fully_booked else "") + "'>"
-        "<div class='property-img'>" + emoji + "</div>"
+        "<div class='property-img' style='padding:0;overflow:hidden;'>" + (photo_html if photo_html else emoji) + "</div>"
         + ("<div style='background:#dc2626;color:white;text-align:center;font-size:0.78rem;font-weight:700;padding:0.3rem;letter-spacing:0.05em;'>🚫 ALL ROOMS CURRENTLY BOOKED</div>" if fully_booked else "")
         + ("<div style='background:#d97706;color:white;text-align:center;font-size:0.78rem;font-weight:700;padding:0.3rem;letter-spacing:0.05em;'>⚠️ PARTIALLY BOOKED — OTHER DATES AVAILABLE</div>" if house_occupied else "")
         + "<div class='property-body'>"
