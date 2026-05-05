@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import base64, json
-from database import get_conn, adapt_sql, df_query
+from database import get_conn, adapt_sql, df_query, USE_POSTGRES, release_conn
 from ui_components import metric_card, status_badge, property_emoji
 from ml_model import get_monthly_forecast, predict_trending_properties, predict_trending_by_month, run_backtest, get_data_quality_report, process_new_booking
 from datetime import datetime
@@ -449,7 +449,6 @@ def owner_add_property(user):
                 else:
                     conn = get_conn()
                     cur = conn.cursor()
-                    from database import USE_POSTGRES
 
                     # Encode uploaded photos
                     photos_json = None
