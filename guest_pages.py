@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import json, base64
 from database import get_conn, adapt_sql, USE_POSTGRES, release_conn, df_query
 from ui_components import metric_card, status_badge, property_emoji
 from ml_model import predict_trending_properties, process_new_booking
@@ -136,6 +137,20 @@ def browse_properties(user=None):
 def _property_card(row, user):
     emoji = property_emoji(row['type'])
 
+    # ── Show property photos if available ──────────────────────────────────
+    images_json = row.get('images') or ''
+    if images_json:
+        try:
+            imgs = json.loads(images_json)
+            if imgs:
+                photo_cols = st.columns(min(len(imgs), 3))
+                for pi, img_data in enumerate(imgs[:3]):
+                    with photo_cols[pi]:
+                        st.image(img_data, use_container_width=True)
+        except Exception:
+            pass
+
+
     is_apartment = row['type'] == 'apartment'
     available_rooms = int(row['available_rooms']) if is_apartment else None
     fully_booked = is_apartment and available_rooms == 0
@@ -244,16 +259,14 @@ def _save_booking(user, prop_id, prop_type, room_id,
         conn = get_conn()
         cur = conn.cursor()
 
-        # Block if guest already has an active booking with the same owner
+        # Block if guest already has an active booking on this property
         cur.execute(adapt_sql("""
-            SELECT b.id FROM bookings b
-            JOIN properties p ON b.property_id = p.id
-            JOIN properties target ON target.id = %s
-            WHERE b.guest_id = %s
-              AND p.owner_id = target.owner_id
-              AND b.status IN ('pending', 'confirmed')
+            SELECT id FROM bookings
+            WHERE guest_id = %s
+              AND property_id = %s
+              AND status IN ('pending', 'confirmed')
             LIMIT 1
-        """), (prop_id, int(float(user['id']))))
+        """), (int(float(user['id'])), prop_id))
         existing = cur.fetchone()
 
         if existing:
@@ -262,9 +275,8 @@ def _save_booking(user, prop_id, prop_type, room_id,
             else:
                 conn.close()
             st.error(
-                "❌ You already have an active booking with this owner. "
-                "Please wait until your current booking is completed or cancelled "
-                "before booking another property from the same owner."
+                "❌ You already have an active booking for this property. "
+                "Please wait until your current booking is completed or cancelled before booking again."
             )
             return
 
@@ -318,19 +330,16 @@ def _booking_form(prop, user):
 
     st.markdown(f"### 📅 Book: {prop_title}")
 
-    # Block if guest already has an active booking with the same owner
+    # Block if guest already has an active booking
     _chk = get_conn()
     try:
         _cur = _chk.cursor()
         _cur.execute(adapt_sql("""
-            SELECT b.id FROM bookings b
-            JOIN properties p ON b.property_id = p.id
-            JOIN properties target ON target.id = %s
-            WHERE b.guest_id = %s
-              AND p.owner_id = target.owner_id
-              AND b.status IN ('pending', 'confirmed')
+            SELECT id FROM bookings
+            WHERE guest_id = %s AND property_id = %s
+              AND status IN ('pending', 'confirmed')
             LIMIT 1
-        """), (prop_id, int(float(user['id']))))
+        """), (int(float(user['id'])), prop_id))
         _active = _cur.fetchone()
     finally:
         if USE_POSTGRES:
@@ -339,9 +348,8 @@ def _booking_form(prop, user):
             _chk.close()
     if _active:
         st.error(
-            "❌ You already have an active booking with this owner. "
-            "Please wait until your current booking is completed or cancelled "
-            "before booking another property from the same owner."
+            "❌ You already have an active booking for this property. "
+            "Please wait until your current booking is completed or cancelled before booking again."
         )
         if st.button("✖ Close", key="bk_close_dup"):
             st.session_state.pop('show_booking_modal', None)
