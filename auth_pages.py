@@ -1,6 +1,6 @@
 """
 auth_pages.py  —  PropBook PH
-Login / Register UI matching the clean card + tab design from index.html
+Login / Register UI — redesigned for visibility & modern aesthetics.
 """
 
 import streamlit as st
@@ -12,162 +12,240 @@ from auth import (
     SUPABASE_URL,
 )
 
-# ── Inject UI styles ──────────────────────────────────────────────────────────
+# ── Inject auth-page styles ───────────────────────────────────────────────────
 def _inject_auth_css():
     st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Manrope:wght@400;500;600;700&display=swap');
 
-    html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
-        background-color: #f4f4f9 !important;
-        font-family: 'Inter', Arial, sans-serif !important;
+    /* ── Full-page background ── */
+    html, body,
+    [data-testid="stApp"],
+    [data-testid="stAppViewContainer"],
+    [data-testid="stMain"],
+    .main {
+        background: #f2f0eb !important;
+        font-family: 'Manrope', sans-serif !important;
     }
 
-    [data-testid="stSidebar"] { display: none !important; }
-    [data-testid="stHeader"]  { display: none !important; }
-    footer                    { display: none !important; }
-    #MainMenu                 { display: none !important; }
+    /* Hide Streamlit chrome */
+    [data-testid="stSidebar"]  { display: none !important; }
+    [data-testid="stHeader"]   { display: none !important; }
+    footer, #MainMenu          { visibility: hidden !important; }
 
-    .stButton > button {
-        width: 100% !important;
-        padding: 10px !important;
-        background-color: #0066cc !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 4px !important;
-        font-size: 15px !important;
-        font-weight: bold !important;
-        font-family: 'Inter', Arial, sans-serif !important;
-        transition: background-color 0.2s !important;
+    /* ── Auth card ── */
+    .auth-wrap {
+        max-width: 420px;
+        margin: 3rem auto 2rem;
+        background: #ffffff;
+        border-radius: 20px;
+        padding: 2.5rem 2.5rem 2rem;
+        box-shadow: 0 8px 40px rgba(15,42,74,0.13), 0 2px 8px rgba(15,42,74,0.07);
+        border: 1px solid #d9d5cc;
+        position: relative;
+        overflow: hidden;
+    }
+    .auth-wrap::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, #0f2a4a, #d4960a);
     }
 
-    .stButton > button:hover {
-        background-color: #005bb5 !important;
+    /* ── Logo / brand ── */
+    .auth-brand {
+        text-align: center;
+        margin-bottom: 1.6rem;
+    }
+    .auth-brand .brand-icon {
+        font-size: 2.5rem;
+        display: block;
+        margin-bottom: 0.3rem;
+    }
+    .auth-brand h2 {
+        font-family: 'Sora', sans-serif !important;
+        font-size: 1.5rem !important;
+        font-weight: 800 !important;
+        color: #0f2a4a !important;
+        margin: 0 !important;
+        letter-spacing: -0.01em;
+    }
+    .auth-brand p {
+        font-size: 0.8rem !important;
+        color: #9ca3af !important;
+        margin: 0.2rem 0 0 !important;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        font-weight: 600;
     }
 
-    .stTextInput > div > div > input,
-    .stSelectbox > div > div {
-        border: 1px solid #ccc !important;
-        border-radius: 4px !important;
-        font-family: 'Inter', Arial, sans-serif !important;
-        font-size: 14px !important;
-        background: #fff !important;
-    }
-
+    /* ── Tabs ── */
     .stTabs [data-baseweb="tab-list"] {
-        background: transparent !important;
-        border-bottom: 2px solid #eee !important;
-        border-radius: 0 !important;
-        padding: 0 !important;
-        gap: 0 !important;
+        background: #e8e5de !important;
+        border-radius: 10px !important;
+        padding: 4px !important;
+        gap: 2px !important;
+        border: none !important;
+        margin-bottom: 1.2rem !important;
     }
-
     .stTabs [data-baseweb="tab"] {
         background: transparent !important;
-        border-radius: 0 !important;
-        font-family: 'Inter', Arial, sans-serif !important;
-        font-weight: bold !important;
-        font-size: 15px !important;
-        color: #777 !important;
-        padding: 10px 20px !important;
+        border-radius: 7px !important;
+        font-family: 'Manrope', sans-serif !important;
+        font-weight: 700 !important;
+        font-size: 0.88rem !important;
+        color: #6b7280 !important;
+        padding: 0.45rem 1.3rem !important;
+        border: none !important;
+        transition: all 0.15s !important;
         flex: 1 !important;
         justify-content: center !important;
     }
-
     .stTabs [aria-selected="true"] {
-        background: transparent !important;
-        color: #0066cc !important;
-        border-bottom: 2px solid #0066cc !important;
+        background: #0f2a4a !important;
+        color: white !important;
+        box-shadow: 0 1px 4px rgba(15,42,74,0.22) !important;
     }
 
+    /* ── Inputs ── */
+    .stTextInput > div > div > input,
+    .stTextArea > div > div > textarea {
+        border: 1.5px solid #d1d5db !important;
+        border-radius: 8px !important;
+        background: #fafaf9 !important;
+        color: #111827 !important;
+        font-family: 'Manrope', sans-serif !important;
+        font-size: 0.9rem !important;
+        padding: 0.55rem 0.8rem !important;
+        transition: border-color 0.15s !important;
+    }
+    .stTextInput > div > div > input:focus {
+        border-color: #2563a8 !important;
+        box-shadow: 0 0 0 3px rgba(37,99,168,0.10) !important;
+        outline: none !important;
+        background: #fff !important;
+    }
+    .stSelectbox > div > div {
+        border: 1.5px solid #d1d5db !important;
+        border-radius: 8px !important;
+        background: #fafaf9 !important;
+        font-family: 'Manrope', sans-serif !important;
+        font-size: 0.9rem !important;
+        color: #111827 !important;
+    }
+
+    /* Labels */
+    .stTextInput label,
+    .stSelectbox label {
+        color: #374151 !important;
+        font-family: 'Manrope', sans-serif !important;
+        font-weight: 600 !important;
+        font-size: 0.83rem !important;
+        letter-spacing: 0.01em !important;
+    }
+
+    /* ── Primary button ── */
+    .stButton > button {
+        width: 100% !important;
+        background: #0f2a4a !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        font-family: 'Manrope', sans-serif !important;
+        font-size: 0.9rem !important;
+        font-weight: 700 !important;
+        padding: 0.6rem 1rem !important;
+        letter-spacing: 0.02em !important;
+        transition: all 0.18s !important;
+        box-shadow: 0 2px 6px rgba(15,42,74,0.22) !important;
+    }
+    .stButton > button:hover {
+        background: #1a4070 !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 12px rgba(15,42,74,0.28) !important;
+    }
+
+    /* ── Forms ── */
     div[data-testid="stForm"] {
         border: none !important;
         padding: 0 !important;
         background: transparent !important;
     }
 
-    .field-label {
-        display: block;
-        margin-bottom: 4px;
-        font-size: 14px;
-        color: #333;
-        font-weight: 500;
-    }
-
+    /* ── OR divider ── */
     .or-divider {
-        text-align: center;
-        margin: 18px 0;
-        color: #777;
-        font-size: 14px;
-        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin: 1.2rem 0;
+        color: #9ca3af;
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
     }
-
-    .or-divider::before, .or-divider::after {
-        content: "";
-        position: absolute;
-        top: 50%;
-        width: 40%;
+    .or-divider::before,
+    .or-divider::after {
+        content: '';
+        flex: 1;
         height: 1px;
-        background-color: #ccc;
+        background: #e5e7eb;
     }
 
-    .or-divider::before { left: 0; }
-    .or-divider::after  { right: 0; }
-
+    /* ── Google button ── */
     .google-btn {
         display: flex;
         align-items: center;
         justify-content: center;
         gap: 10px;
         width: 100%;
-        padding: 10px;
+        padding: 0.6rem 1rem;
         background: white;
-        color: #444;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-        font-size: 15px;
-        font-weight: bold;
-        font-family: 'Inter', Arial, sans-serif;
-        cursor: pointer;
-        text-decoration: none;
-        transition: background 0.2s;
-        box-sizing: border-box;
-    }
-
-    .google-btn:hover {
-        background: #f9f9f9;
-        color: #444;
-        text-decoration: none;
-    }
-
-    .msg-success {
-        background: #d4edda;
-        color: #155724;
-        border: 1px solid #c3e6cb;
-        padding: 12px 15px;
-        border-radius: 4px;
-        font-size: 14px;
-        margin-bottom: 15px;
-        text-align: center;
-    }
-
-    .msg-error {
-        background: #f8d7da;
-        color: #721c24;
-        border: 1px solid #f5c6cb;
-        padding: 12px 15px;
-        border-radius: 4px;
-        font-size: 14px;
-        margin-bottom: 15px;
-        text-align: center;
-    }
-
-    .auth-card {
-        background: #ffffff;
-        padding: 2rem 2rem 1.5rem;
+        color: #374151;
+        border: 1.5px solid #d1d5db;
         border-radius: 8px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-        width: 100%;
+        font-size: 0.88rem;
+        font-weight: 700;
+        font-family: 'Manrope', sans-serif;
+        cursor: pointer;
+        text-decoration: none !important;
+        transition: all 0.15s;
+        box-sizing: border-box;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .google-btn:hover {
+        background: #f9fafb;
+        border-color: #9ca3af;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.10);
+        color: #374151 !important;
+        text-decoration: none !important;
+    }
+
+    /* ── Message boxes ── */
+    .msg-success {
+        background: #dcfce7;
+        color: #14532d;
+        border: 1.5px solid #86efac;
+        border-left: 4px solid #16a34a;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        font-size: 0.87rem;
+        font-family: 'Manrope', sans-serif;
+        font-weight: 500;
+        margin-bottom: 1rem;
+    }
+    .msg-error {
+        background: #fee2e2;
+        color: #7f1d1d;
+        border: 1.5px solid #fca5a5;
+        border-left: 4px solid #dc2626;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        font-size: 0.87rem;
+        font-family: 'Manrope', sans-serif;
+        font-weight: 500;
+        margin-bottom: 1rem;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -180,7 +258,7 @@ def _handle_google_callback():
     if not token:
         return
 
-    with st.spinner("Signing you in with Google, please wait..."):
+    with st.spinner("Signing you in with Google…"):
         try:
             profile = verify_supabase_token(token)
             user    = login_or_create_google_user(profile)
@@ -192,8 +270,10 @@ def _handle_google_callback():
             st.markdown(f'<div class="msg-error">{e}</div>', unsafe_allow_html=True)
             st.query_params.clear()
         except Exception as e:
-            st.markdown(f'<div class="msg-error">Google sign-in failed: {e}</div>',
-                        unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="msg-error">Google sign-in failed: {e}</div>',
+                unsafe_allow_html=True
+            )
             st.query_params.clear()
 
 
@@ -202,11 +282,18 @@ def show_login_page():
     _inject_auth_css()
     _handle_google_callback()
 
-    # Center card using columns
-    _, col, _ = st.columns([1, 1.5, 1])
+    # Use columns to center — narrow middle column acts as the card container
+    _, col, _ = st.columns([1, 1.4, 1])
 
     with col:
-        st.markdown('<div class="auth-card">', unsafe_allow_html=True)
+        # Brand header
+        st.markdown("""
+        <div class="auth-brand">
+            <span class="brand-icon">🏘️</span>
+            <h2>PropBook PH</h2>
+            <p>Philippines Property Booking</p>
+        </div>
+        """, unsafe_allow_html=True)
 
         tab_login, tab_register = st.tabs(["Login", "Register"])
 
@@ -215,21 +302,25 @@ def show_login_page():
             msg = st.empty()
 
             with st.form("login_form"):
-                st.markdown('<span class="field-label">Email</span>', unsafe_allow_html=True)
-                email = st.text_input("Email", placeholder="you@example.com",
-                                      label_visibility="collapsed")
-
-                st.markdown('<span class="field-label">Password</span>', unsafe_allow_html=True)
-                password = st.text_input("Password", type="password",
-                                         placeholder="••••••••",
-                                         label_visibility="collapsed")
-
-                submitted = st.form_submit_button("Login", use_container_width=True)
+                email = st.text_input(
+                    "Email address",
+                    placeholder="you@example.com",
+                )
+                password = st.text_input(
+                    "Password",
+                    type="password",
+                    placeholder="••••••••",
+                )
+                submitted = st.form_submit_button(
+                    "Login", use_container_width=True
+                )
 
             if submitted:
                 if not email or not password:
-                    msg.markdown('<div class="msg-error">Please fill in all fields.</div>',
-                                 unsafe_allow_html=True)
+                    msg.markdown(
+                        '<div class="msg-error">Please fill in all fields.</div>',
+                        unsafe_allow_html=True
+                    )
                 else:
                     user = login(email, password)
                     if user:
@@ -239,24 +330,25 @@ def show_login_page():
                     else:
                         msg.markdown(
                             '<div class="msg-error">Invalid email or password.</div>',
-                            unsafe_allow_html=True)
+                            unsafe_allow_html=True
+                        )
 
             # OR divider + Google button
-            st.markdown('<div class="or-divider">OR</div>', unsafe_allow_html=True)
+            st.markdown('<div class="or-divider">or</div>', unsafe_allow_html=True)
 
             google_url = get_google_oauth_url()
             if google_url:
                 st.markdown(f"""
                 <a href="{google_url}" target="_self" class="google-btn">
                     <img src="https://www.svgrepo.com/show/475656/google-color.svg"
-                         width="20" alt="Google">
+                         width="18" alt="Google logo">
                     Continue with Google
                 </a>
                 """, unsafe_allow_html=True)
             else:
                 st.markdown("""
-                <div class="msg-error" style="font-size:13px">
-                    Google sign-in not configured.
+                <div class="msg-error" style="font-size:0.82rem;text-align:center">
+                    Google sign-in is not configured.
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -265,55 +357,45 @@ def show_login_page():
             msg2 = st.empty()
 
             with st.form("register_form"):
-                st.markdown('<span class="field-label">Email</span>', unsafe_allow_html=True)
-                reg_email = st.text_input("Reg Email", placeholder="you@example.com",
-                                          label_visibility="collapsed")
-
-                st.markdown('<span class="field-label">Full Name</span>', unsafe_allow_html=True)
-                reg_name = st.text_input("Full Name", placeholder="Juan dela Cruz",
-                                         label_visibility="collapsed")
-
-                st.markdown('<span class="field-label">Phone</span>', unsafe_allow_html=True)
-                reg_phone = st.text_input("Phone", placeholder="+63 9XX XXX XXXX",
-                                          label_visibility="collapsed")
-
-                st.markdown('<span class="field-label">Register as</span>', unsafe_allow_html=True)
-                reg_role = st.selectbox("Role", ["guest", "owner"],
-                                        label_visibility="collapsed")
-
-                st.markdown('<span class="field-label">Password</span>', unsafe_allow_html=True)
-                reg_password = st.text_input("Reg Password", type="password",
-                                              placeholder="Min 6 characters",
-                                              label_visibility="collapsed")
-
-                st.markdown('<span class="field-label">Confirm Password</span>', unsafe_allow_html=True)
-                reg_confirm = st.text_input("Confirm Password", type="password",
-                                             placeholder="••••••••",
-                                             label_visibility="collapsed")
-
-                reg_submitted = st.form_submit_button("Create Account", use_container_width=True)
+                reg_email    = st.text_input("Email address", placeholder="you@example.com", key="r_email")
+                reg_name     = st.text_input("Full name", placeholder="Juan dela Cruz", key="r_name")
+                reg_phone    = st.text_input("Phone number", placeholder="+63 9XX XXX XXXX", key="r_phone")
+                reg_role     = st.selectbox("Register as", ["guest", "owner"], key="r_role")
+                reg_password = st.text_input("Password", type="password",
+                                              placeholder="Minimum 6 characters", key="r_pass")
+                reg_confirm  = st.text_input("Confirm password", type="password",
+                                              placeholder="••••••••", key="r_confirm")
+                reg_submitted = st.form_submit_button(
+                    "Create Account", use_container_width=True
+                )
 
             if reg_submitted:
                 if not reg_name or not reg_email or not reg_password:
                     msg2.markdown(
                         '<div class="msg-error">Please fill in all required fields.</div>',
-                        unsafe_allow_html=True)
+                        unsafe_allow_html=True
+                    )
                 elif reg_password != reg_confirm:
-                    msg2.markdown('<div class="msg-error">Passwords do not match.</div>',
-                                  unsafe_allow_html=True)
+                    msg2.markdown(
+                        '<div class="msg-error">Passwords do not match.</div>',
+                        unsafe_allow_html=True
+                    )
                 elif len(reg_password) < 6:
                     msg2.markdown(
                         '<div class="msg-error">Password must be at least 6 characters.</div>',
-                        unsafe_allow_html=True)
+                        unsafe_allow_html=True
+                    )
                 else:
-                    success, msg_text = register(reg_name, reg_email, reg_password,
-                                                 reg_role, reg_phone)
+                    success, msg_text = register(
+                        reg_name, reg_email, reg_password, reg_role, reg_phone
+                    )
                     if success:
                         msg2.markdown(
-                            f'<div class="msg-success">{msg_text} Please login.</div>',
-                            unsafe_allow_html=True)
+                            f'<div class="msg-success">✓ {msg_text} Please login.</div>',
+                            unsafe_allow_html=True
+                        )
                     else:
-                        msg2.markdown(f'<div class="msg-error">{msg_text}</div>',
-                                      unsafe_allow_html=True)
-
-        st.markdown('</div>', unsafe_allow_html=True)
+                        msg2.markdown(
+                            f'<div class="msg-error">{msg_text}</div>',
+                            unsafe_allow_html=True
+                        )
