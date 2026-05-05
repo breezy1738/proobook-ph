@@ -250,11 +250,15 @@ def admin_properties():
         _status_icons = {'approved': '✅', 'pending': '⏳', 'rejected': '❌'}
         _sicon = _status_icons.get(row['status'], '•')
         prop_id = _int(row['id'])
+        _is_blocked = int(row.get('is_active') or 1) == 0
+        _blocked_tag = " | 🚫 BLOCKED" if _is_blocked else ""
 
         with st.expander(
-            f"{property_emoji(row['type'])} {row['title']} — {row['city']} | {_sicon} {row['status'].title()} | 👤 {row['owner_name']}",
+            f"{property_emoji(row['type'])} {row['title']} — {row['city']} | {_sicon} {row['status'].title()}{_blocked_tag} | 👤 {row['owner_name']}",
             expanded=False
         ):
+            if _is_blocked:
+                st.error("🚫 This property is currently **blocked**. Guests cannot view or book it.")
             # ── Approve / Reject action bar (only shown for pending properties) ──
             if row['status'] == 'pending':
                 act_cols = st.columns([1, 1, 4])
