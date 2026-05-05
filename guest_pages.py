@@ -9,25 +9,42 @@ from datetime import datetime, timedelta, date
 
 # ── Refund table bootstrap (idempotent) ───────────────────────────────────────
 def _ensure_refunds_table():
-    """Create the refunds table if it doesn't exist yet."""
+    """Create the refunds table if it doesn't exist yet (dialect-aware DDL)."""
     conn = get_conn()
     try:
         cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS refunds (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                booking_id INTEGER NOT NULL UNIQUE,
-                guest_id INTEGER NOT NULL,
-                amount REAL NOT NULL,
-                reason TEXT,
-                status TEXT DEFAULT 'pending',
-                owner_note TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                resolved_at TIMESTAMP,
-                FOREIGN KEY (booking_id) REFERENCES bookings(id),
-                FOREIGN KEY (guest_id) REFERENCES users(id)
-            )
-        """)
+        if USE_POSTGRES:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS refunds (
+                    id SERIAL PRIMARY KEY,
+                    booking_id INTEGER NOT NULL UNIQUE,
+                    guest_id INTEGER NOT NULL,
+                    amount REAL NOT NULL,
+                    reason TEXT,
+                    status TEXT DEFAULT 'pending',
+                    owner_note TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    resolved_at TIMESTAMP,
+                    FOREIGN KEY (booking_id) REFERENCES bookings(id),
+                    FOREIGN KEY (guest_id) REFERENCES users(id)
+                )
+            """)
+        else:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS refunds (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    booking_id INTEGER NOT NULL UNIQUE,
+                    guest_id INTEGER NOT NULL,
+                    amount REAL NOT NULL,
+                    reason TEXT,
+                    status TEXT DEFAULT 'pending',
+                    owner_note TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    resolved_at TIMESTAMP,
+                    FOREIGN KEY (booking_id) REFERENCES bookings(id),
+                    FOREIGN KEY (guest_id) REFERENCES users(id)
+                )
+            """)
         conn.commit()
     finally:
         release_conn(conn) if USE_POSTGRES else conn.close()
