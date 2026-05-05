@@ -1,4 +1,4 @@
-import streamlit as st
+vimport streamlit as st
 import pandas as pd
 import base64, json
 from database import get_conn, adapt_sql, df_query
@@ -170,6 +170,20 @@ def owner_properties(user):
                 if row['description']:
                     st.markdown(f"**Description:** {row['description']}")
 
+                # Show photos in details tab
+                images_json = row.get('images') or ''
+                if images_json:
+                    try:
+                        imgs = json.loads(images_json)
+                        if imgs:
+                            st.markdown("**📸 Photos:**")
+                            pcols = st.columns(min(len(imgs), 3))
+                            for pi, img_data in enumerate(imgs[:3]):
+                                with pcols[pi % 3]:
+                                    st.image(img_data, use_container_width=True)
+                    except Exception:
+                        pass
+
             with tabs[1]:
                 if row['type'] == 'apartment':
                     _manage_rooms(_int(row['id']))
@@ -275,24 +289,42 @@ def _edit_property(row, idx=0):
     st.markdown("---")
     st.markdown("**📸 Property Photos**")
 
-    # Show existing photos
+    # Load existing photos into session state for per-photo deletion
     existing_images = row.get('images') or ''
-    if existing_images:
-        st.caption("Current photos:")
-        _show_property_photos(existing_images, max_cols=3)
-        if st.checkbox("🗑️ Remove all existing photos", key=f"{sk}_remove_photos"):
-            existing_images = ''
+    try:
+        current_imgs = json.loads(existing_images) if existing_images else []
+    except Exception:
+        current_imgs = []
+
+    # Per-photo delete buttons
+    if current_imgs:
+        st.caption("Current photos (click ✕ to remove):")
+        keep_imgs = list(current_imgs)
+        pcols = st.columns(min(len(current_imgs), 3))
+        for pi, img_data in enumerate(current_imgs):
+            with pcols[pi % 3]:
+                st.image(img_data, use_container_width=True)
+                if st.button("✕ Remove", key=f"{sk}_del_photo_{pi}"):
+                    keep_imgs.remove(img_data)
+                    # Save immediately
+                    c2 = get_conn()
+                    cur2 = c2.cursor()
+                    new_val = json.dumps(keep_imgs) if keep_imgs else None
+                    cur2.execute(adapt_sql("UPDATE properties SET images=%s WHERE id=%s"), (new_val, prop_id))
+                    c2.commit(); cur2.close(); c2.close()
+                    st.success("Photo removed."); st.rerun()
+        existing_images = json.dumps(keep_imgs) if keep_imgs else ''
     else:
         st.caption("No photos yet.")
 
     new_photos = st.file_uploader(
-        "Upload new photos (JPG, PNG — max 5)",
+        "Upload new photos (JPG, PNG — max 5 total)",
         type=["jpg", "jpeg", "png"],
         accept_multiple_files=True,
         key=f"{sk}_photos"
     )
     if new_photos:
-        st.caption(f"{len(new_photos)} photo(s) selected")
+        st.caption(f"{len(new_photos)} new photo(s) selected")
         preview_cols = st.columns(min(len(new_photos), 3))
         for pi, pf in enumerate(new_photos):
             with preview_cols[pi % 3]:
