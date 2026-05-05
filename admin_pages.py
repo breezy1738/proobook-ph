@@ -271,55 +271,6 @@ def _admin_view_rooms(property_id):
                 st.error("Room number is required.")
 
 
-def _admin_edit_property(row, idx=0):
-    """Same edit form as owner, admin can also change status directly."""
-    prop_id = _int(row['id'])
-    sk = f"adm_ep_{prop_id}_{idx}"
-
-    st.markdown("**Edit Property Details**")
-    st.text_input("Title",       value=row['title'],              key=f"{sk}_title")
-    st.text_area("Description",  value=str(row.get('description') or ""), key=f"{sk}_desc")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.number_input("Nightly Price (₱)", value=max(0.0, float(row['nightly_price'])), min_value=0.0, key=f"{sk}_nightly")
-        st.number_input("Max Guests",        value=max(1, _int(row['max_guests'])),        min_value=1,   key=f"{sk}_guests")
-        st.number_input("Bedrooms",          value=max(0, _int(row['bedrooms'])),           min_value=0,   key=f"{sk}_beds")
-    with col2:
-        st.number_input("Monthly Price (₱)", value=max(0.0, float(row['monthly_price'])), min_value=0.0, key=f"{sk}_monthly")
-        st.number_input("Bathrooms",         value=max(1, _int(row['bathrooms'])),          min_value=1,   key=f"{sk}_baths")
-    st.text_input("Amenities (comma-separated)", value=str(row.get('amenities') or ""), key=f"{sk}_amenities")
-
-    st.markdown("**Status Override:**")
-    status_opts = ["pending", "approved", "rejected"]
-    cur_idx = status_opts.index(row['status']) if row['status'] in status_opts else 0
-    st.selectbox("Set Status", status_opts, index=cur_idx, key=f"{sk}_status")
-
-    if st.button("💾 Save Changes", key=f"{sk}_save"):
-        try:
-            c = get_conn()
-            cur = c.cursor()
-            cur.execute(adapt_sql(
-                "UPDATE properties SET title=%s, description=%s, nightly_price=%s, monthly_price=%s, "
-                "max_guests=%s, bedrooms=%s, bathrooms=%s, amenities=%s, status=%s WHERE id=%s"
-            ), (
-                str(st.session_state[f"{sk}_title"]),
-                str(st.session_state[f"{sk}_desc"]),
-                float(st.session_state[f"{sk}_nightly"]),
-                float(st.session_state[f"{sk}_monthly"]),
-                _int(st.session_state[f"{sk}_guests"]),
-                _int(st.session_state[f"{sk}_beds"]),
-                _int(st.session_state[f"{sk}_baths"]),
-                str(st.session_state[f"{sk}_amenities"]),
-                st.session_state[f"{sk}_status"],
-                prop_id
-            ))
-            c.commit()
-            release_conn(c) if USE_POSTGRES else c.close()
-            st.success("✅ Property updated!"); st.rerun()
-        except Exception as e:
-            st.error(f"Failed to save: {e}")
-
 
 def admin_properties():
     st.markdown('<div class="section-header">🏘️ Property Management</div>', unsafe_allow_html=True)
@@ -362,18 +313,17 @@ def admin_properties():
             f"{property_emoji(row['type'])} {row['title']} — {row['city']} | {_sicon} {row['status'].title()} | 👤 {row['owner_name']}",
             expanded=False
         ):
-            # ── Approve / Reject action bar ──────────────────────────────────
-            act_cols = st.columns([1, 1, 4])
-            with act_cols[0]:
-                if row['status'] != 'approved':
+            # ── Approve / Reject action bar (only shown for pending properties) ──
+            if row['status'] == 'pending':
+                act_cols = st.columns([1, 1, 4])
+                with act_cols[0]:
                     if st.button("✅ Approve", key=f"app_{prop_id}"):
                         c = get_conn()
                         cur = c.cursor()
                         cur.execute(adapt_sql("UPDATE properties SET status='approved' WHERE id=%s"), (prop_id,))
                         c.commit(); release_conn(c) if USE_POSTGRES else c.close()
                         st.success("Approved!"); st.rerun()
-            with act_cols[1]:
-                if row['status'] != 'rejected':
+                with act_cols[1]:
                     if st.button("❌ Reject", key=f"rej_{prop_id}"):
                         c = get_conn()
                         cur = c.cursor()
@@ -381,8 +331,8 @@ def admin_properties():
                         c.commit(); release_conn(c) if USE_POSTGRES else c.close()
                         st.warning("Rejected."); st.rerun()
 
-            # ── Same tabs as owner ───────────────────────────────────────────
-            tabs = st.tabs(["📋 Details", "🛏️ Rooms", "✏️ Edit"])
+            # ── Tabs ─────────────────────────────────────────────────────────
+            tabs = st.tabs(["📋 Details", "🛏️ Rooms"])
 
             with tabs[0]:
                 col1, col2 = st.columns(2)
@@ -429,8 +379,7 @@ def admin_properties():
                 else:
                     st.info("🏠 House — no room management needed.")
 
-            with tabs[2]:
-                _admin_edit_property(row, idx)
+
 
 
 def admin_users():
