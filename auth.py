@@ -13,23 +13,16 @@ from database import get_conn, hash_password, _p, adapt_sql, USE_POSTGRES, relea
 # ── Supabase config (read from environment / Streamlit secrets) ───────────────
 def _get_supabase_cfg():
     """
-    Read SUPABASE_URL and SUPABASE_ANON_KEY safely.
-    Works with:
-      • Streamlit Cloud  →  st.secrets["SUPABASE_URL"]
-      • Local dev        →  env var SUPABASE_URL set in shell / .env
-    Note: st.secrets raises KeyError (not returns a default) for missing keys,
-    so we use `in` checks rather than .get() to avoid a crash at import time.
+    Read SUPABASE_URL and SUPABASE_ANON_KEY from environment variables only.
+    Do NOT use st.secrets here — this function runs at module import time,
+    before st.set_page_config() is called, so st.secrets is not yet
+    initialised and will raise a KeyError.
+
+    On Streamlit Cloud: add SUPABASE_URL and SUPABASE_ANON_KEY under
+    Settings → Secrets in your app dashboard (they are exposed as env vars).
     """
-    url = ""
-    key = ""
-    try:
-        secrets = st.secrets
-        url = secrets["SUPABASE_URL"] if "SUPABASE_URL" in secrets else ""
-        key = secrets["SUPABASE_ANON_KEY"] if "SUPABASE_ANON_KEY" in secrets else ""
-    except Exception:
-        pass
-    url = url or os.environ.get("SUPABASE_URL", "")
-    key = key or os.environ.get("SUPABASE_ANON_KEY", "")
+    url = os.environ.get("SUPABASE_URL", "")
+    key = os.environ.get("SUPABASE_ANON_KEY", "")
     return url.rstrip("/"), key
 
 
