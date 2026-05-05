@@ -247,28 +247,7 @@ def _admin_view_rooms(property_id):
                     c.commit(); release_conn(c) if USE_POSTGRES else c.close()
                     st.rerun()
 
-    st.markdown("---")
-    st.markdown("**Add Room:**")
-    with st.form(f"adm_add_room_{property_id}"):
-        col1, col2 = st.columns(2)
-        with col1:
-            rnum = st.text_input("Room Number", placeholder="e.g. 101")
-            floor = st.number_input("Floor", min_value=1, max_value=50, value=1)
-        with col2:
-            rtype = st.selectbox("Room Type", ["standard", "deluxe", "suite", "penthouse"])
-            capacity = st.number_input("Capacity", min_value=1, max_value=10, value=2)
-        desc = st.text_input("Description (optional)")
-        if st.form_submit_button("➕ Add Room"):
-            if rnum:
-                c = get_conn()
-                cur = c.cursor()
-                cur.execute(adapt_sql(
-                    "INSERT INTO rooms (property_id, room_number, floor, room_type, capacity, description) VALUES (%s,%s,%s,%s,%s,%s)"
-                ), (property_id, rnum, floor, rtype, capacity, desc))
-                c.commit(); release_conn(c) if USE_POSTGRES else c.close()
-                st.success(f"Room {rnum} added!"); st.rerun()
-            else:
-                st.error("Room number is required.")
+
 
 
 
