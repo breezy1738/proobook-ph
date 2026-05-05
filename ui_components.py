@@ -1,167 +1,296 @@
 import streamlit as st
 
-# ── Design tokens ─────────────────────────────────────────────────────────────
-# Palette: deep navy + warm gold + clean white surfaces
-# Fonts: Sora (display) + Manrope (body) — distinctive, modern, legible
+# ─────────────────────────────────────────────────────────────────────────────
+#  PropBook PH — ui_components.py
+#  Complete CSS rewrite that fixes:
+#  1. Black / invisible buttons (especially inside expanders, tabs, columns)
+#  2. Invisible text in dark-background custom HTML cards
+#  3. Sidebar text/icon color issues
+#  4. Input label visibility
+#  5. All Streamlit version-specific selector issues
+# ─────────────────────────────────────────────────────────────────────────────
 
 THEME_CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Manrope:wght@300;400;500;600;700&display=swap');
 
-/* ── CSS Variables ─────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   CSS VARIABLES
+═══════════════════════════════════════════════════════════════════════════ */
 :root {
-    --primary:        #0f2a4a;
-    --primary-mid:    #1a4070;
-    --primary-light:  #2563a8;
-    --accent:         #d4960a;
-    --accent-light:   #f0b429;
-    --accent-soft:    #fff3cd;
-    --bg:             #f2f0eb;
-    --surface:        #ffffff;
-    --surface2:       #e8e5de;
-    --surface3:       #f8f6f2;
-    --text:           #111827;
-    --text-muted:     #6b7280;
-    --text-light:     #9ca3af;
-    --success:        #15803d;
-    --success-bg:     #dcfce7;
-    --danger:         #b91c1c;
-    --danger-bg:      #fee2e2;
-    --warning:        #b45309;
-    --warning-bg:     #fef3c7;
-    --info:           #1d4ed8;
-    --info-bg:        #dbeafe;
-    --border:         #d9d5cc;
-    --shadow-sm:      0 1px 3px rgba(15,42,74,0.08), 0 1px 2px rgba(15,42,74,0.05);
-    --shadow:         0 4px 16px rgba(15,42,74,0.10), 0 2px 4px rgba(15,42,74,0.06);
-    --shadow-lg:      0 8px 32px rgba(15,42,74,0.14), 0 4px 8px rgba(15,42,74,0.08);
-    --radius-sm:      8px;
-    --radius:         14px;
-    --radius-lg:      20px;
+    --primary:       #0f2a4a;
+    --primary-mid:   #1a4070;
+    --primary-light: #2563a8;
+    --accent:        #d4960a;
+    --accent-light:  #f0b429;
+    --bg:            #f2f0eb;
+    --surface:       #ffffff;
+    --surface2:      #e8e5de;
+    --surface3:      #f8f6f2;
+    --text:          #111827;
+    --text-muted:    #6b7280;
+    --border:        #d9d5cc;
+    --success:       #15803d;
+    --success-bg:    #dcfce7;
+    --danger:        #b91c1c;
+    --danger-bg:     #fee2e2;
+    --warning:       #b45309;
+    --warning-bg:    #fef3c7;
+    --info:          #1d4ed8;
+    --info-bg:       #dbeafe;
+    --shadow-sm:     0 1px 3px rgba(15,42,74,0.08);
+    --shadow:        0 4px 16px rgba(15,42,74,0.10);
+    --shadow-lg:     0 8px 32px rgba(15,42,74,0.14);
+    --radius:        14px;
+    --radius-sm:     8px;
 }
 
-/* ── Global reset ──────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   GLOBAL BACKGROUND & FONT
+═══════════════════════════════════════════════════════════════════════════ */
 html, body,
 [data-testid="stApp"],
 [data-testid="stAppViewContainer"],
 [data-testid="stMain"],
-.main {
+section.main,
+.main .block-container {
     background-color: var(--bg) !important;
     font-family: 'Manrope', sans-serif !important;
     color: var(--text) !important;
 }
 
-/* ── Sidebar ───────────────────────────────────────────────────────────── */
-[data-testid="stSidebar"],
-[data-testid="stSidebar"] > div:first-child {
-    background: var(--primary) !important;
-    border-right: none !important;
-}
+/* ═══════════════════════════════════════════════════════════════════════════
+   HIDE STREAMLIT CHROME
+═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stHeader"] { background: transparent !important; }
+footer { visibility: hidden !important; }
+#MainMenu { visibility: hidden !important; }
 
-/* Sidebar text — force all text white with high specificity */
-[data-testid="stSidebar"] p,
-[data-testid="stSidebar"] span,
-[data-testid="stSidebar"] div,
-[data-testid="stSidebar"] label,
-[data-testid="stSidebar"] .stMarkdown,
-[data-testid="stSidebar"] .stRadio label,
-[data-testid="stSidebar"] .stRadio span,
-[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
-    color: rgba(232, 240, 252, 0.90) !important;
-    font-family: 'Manrope', sans-serif !important;
-}
+/* ═══════════════════════════════════════════════════════════════════════════
+   BUTTONS — THE BLACK BUTTON BUG FIX
+   Root cause: Streamlit injects a [data-testid="baseButton-secondary"] style
+   that sets color: inherit, which inside dark containers renders as white-on-
+   white or black-on-dark. We must target EVERY possible button selector.
+═══════════════════════════════════════════════════════════════════════════ */
 
-[data-testid="stSidebar"] .stRadio [data-testid="stMarkdownContainer"] p {
-    font-size: 0.93rem !important;
-    font-weight: 500 !important;
-    letter-spacing: 0.01em !important;
-}
-
-/* Sidebar divider */
-[data-testid="stSidebar"] hr {
-    border-color: rgba(255,255,255,0.15) !important;
-}
-
-/* Sidebar button */
-[data-testid="stSidebar"] .stButton > button {
-    background: rgba(255,255,255,0.10) !important;
-    color: white !important;
-    border: 1.5px solid rgba(255,255,255,0.25) !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.03em !important;
-}
-[data-testid="stSidebar"] .stButton > button:hover {
-    background: rgba(255,255,255,0.20) !important;
-    border-color: rgba(255,255,255,0.45) !important;
-}
-
-/* ── Header & footer strip ─────────────────────────────────────────────── */
-[data-testid="stHeader"] {
-    background: transparent !important;
-}
-footer, #MainMenu { visibility: hidden !important; }
-
-/* ── Buttons ───────────────────────────────────────────────────────────── */
-.stButton > button {
-    background: var(--primary) !important;
-    color: white !important;
+/* Target every Streamlit button variant with maximum specificity */
+.stButton > button,
+.stButton > button:link,
+.stButton > button:visited,
+button[data-testid="baseButton-secondary"],
+button[data-testid="baseButton-primary"],
+button[kind="secondary"],
+button[kind="primary"],
+[data-testid="stBaseButton-secondary"],
+[data-testid="stBaseButton-primary"],
+[data-testid="baseButton-secondary"],
+[data-testid="baseButton-primary"] {
+    background-color: var(--primary) !important;
+    color: #ffffff !important;
     border: none !important;
     border-radius: var(--radius-sm) !important;
     font-family: 'Manrope', sans-serif !important;
     font-weight: 600 !important;
-    font-size: 0.88rem !important;
+    font-size: 0.87rem !important;
     letter-spacing: 0.02em !important;
-    padding: 0.55rem 1.4rem !important;
-    transition: all 0.18s ease !important;
-    box-shadow: 0 2px 6px rgba(15,42,74,0.20) !important;
-}
-.stButton > button:hover {
-    background: var(--primary-mid) !important;
-    transform: translateY(-1px) !important;
-    box-shadow: 0 4px 14px rgba(15,42,74,0.28) !important;
-}
-.stButton > button:active {
-    transform: translateY(0) !important;
+    padding: 0.5rem 1.2rem !important;
+    transition: background-color 0.18s ease, transform 0.15s ease, box-shadow 0.18s ease !important;
+    box-shadow: 0 2px 6px rgba(15,42,74,0.22) !important;
+    cursor: pointer !important;
+    line-height: 1.4 !important;
 }
 
-/* ── Form inputs ───────────────────────────────────────────────────────── */
+/* Hover states — also needs full coverage */
+.stButton > button:hover,
+button[data-testid="baseButton-secondary"]:hover,
+button[data-testid="baseButton-primary"]:hover,
+[data-testid="stBaseButton-secondary"]:hover,
+[data-testid="stBaseButton-primary"]:hover,
+[data-testid="baseButton-secondary"]:hover,
+[data-testid="baseButton-primary"]:hover {
+    background-color: var(--primary-mid) !important;
+    color: #ffffff !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 14px rgba(15,42,74,0.30) !important;
+    border: none !important;
+}
+
+/* Active / focus */
+.stButton > button:active,
+.stButton > button:focus,
+button[data-testid="baseButton-secondary"]:active,
+button[data-testid="baseButton-primary"]:active {
+    background-color: var(--primary) !important;
+    color: #ffffff !important;
+    transform: translateY(0) !important;
+    outline: 2px solid rgba(37,99,168,0.35) !important;
+    outline-offset: 2px !important;
+}
+
+/* Ensure p / span inside buttons are also white */
+.stButton > button p,
+.stButton > button span,
+button[data-testid="baseButton-secondary"] p,
+button[data-testid="baseButton-secondary"] span,
+button[data-testid="baseButton-primary"] p,
+button[data-testid="baseButton-primary"] span {
+    color: #ffffff !important;
+    font-family: 'Manrope', sans-serif !important;
+    font-weight: 600 !important;
+}
+
+/* Fix buttons inside expanders specifically */
+div[data-testid="stExpander"] .stButton > button,
+div[data-testid="stExpander"] button[data-testid="baseButton-secondary"],
+div[data-testid="stExpander"] button[data-testid="baseButton-primary"] {
+    background-color: var(--primary) !important;
+    color: #ffffff !important;
+}
+
+/* Fix buttons inside tabs */
+.stTabs .stButton > button,
+.stTabs button[data-testid="baseButton-secondary"],
+.stTabs button[data-testid="baseButton-primary"] {
+    background-color: var(--primary) !important;
+    color: #ffffff !important;
+}
+
+/* Fix buttons inside columns */
+[data-testid="column"] .stButton > button,
+[data-testid="stColumns"] .stButton > button {
+    background-color: var(--primary) !important;
+    color: #ffffff !important;
+}
+
+/* Sidebar buttons — distinct style */
+[data-testid="stSidebar"] .stButton > button,
+[data-testid="stSidebar"] button[data-testid="baseButton-secondary"] {
+    background-color: rgba(255,255,255,0.12) !important;
+    color: #ffffff !important;
+    border: 1.5px solid rgba(255,255,255,0.28) !important;
+    box-shadow: none !important;
+}
+[data-testid="stSidebar"] .stButton > button:hover,
+[data-testid="stSidebar"] button[data-testid="baseButton-secondary"]:hover {
+    background-color: rgba(255,255,255,0.22) !important;
+    color: #ffffff !important;
+    border-color: rgba(255,255,255,0.50) !important;
+}
+[data-testid="stSidebar"] .stButton > button p,
+[data-testid="stSidebar"] .stButton > button span {
+    color: #ffffff !important;
+}
+
+/* Form submit buttons */
+[data-testid="stFormSubmitButton"] > button,
+.stFormSubmitButton > button {
+    background-color: var(--primary) !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: var(--radius-sm) !important;
+    font-family: 'Manrope', sans-serif !important;
+    font-weight: 700 !important;
+    font-size: 0.9rem !important;
+    padding: 0.55rem 1.4rem !important;
+    box-shadow: 0 2px 8px rgba(15,42,74,0.22) !important;
+    width: 100% !important;
+}
+[data-testid="stFormSubmitButton"] > button:hover,
+.stFormSubmitButton > button:hover {
+    background-color: var(--primary-mid) !important;
+    color: #ffffff !important;
+    transform: translateY(-1px) !important;
+}
+[data-testid="stFormSubmitButton"] > button p,
+[data-testid="stFormSubmitButton"] > button span {
+    color: #ffffff !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SIDEBAR
+═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stSidebar"],
+[data-testid="stSidebar"] > div:first-child,
+[data-testid="stSidebar"] > div > div {
+    background-color: var(--primary) !important;
+    border-right: none !important;
+}
+
+/* Force ALL sidebar text to be light */
+[data-testid="stSidebar"] *:not(button):not(button *) {
+    color: rgba(232,240,252,0.90) !important;
+}
+
+[data-testid="stSidebar"] strong,
+[data-testid="stSidebar"] b {
+    color: #ffffff !important;
+}
+
+[data-testid="stSidebar"] hr {
+    border-color: rgba(255,255,255,0.15) !important;
+}
+
+/* Radio nav items */
+[data-testid="stSidebar"] .stRadio > div {
+    background: transparent !important;
+}
+[data-testid="stSidebar"] .stRadio label {
+    padding: 0.35rem 0.5rem !important;
+    border-radius: 6px !important;
+    transition: background 0.15s !important;
+    color: rgba(232,240,252,0.88) !important;
+}
+[data-testid="stSidebar"] .stRadio label:hover {
+    background: rgba(255,255,255,0.08) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FORM INPUTS
+═══════════════════════════════════════════════════════════════════════════ */
 .stTextInput > div > div > input,
 .stTextArea > div > div > textarea,
 .stNumberInput > div > div > input,
 .stDateInput > div > div > input {
-    border-radius: var(--radius-sm) !important;
     border: 1.5px solid var(--border) !important;
-    background: var(--surface) !important;
+    border-radius: var(--radius-sm) !important;
+    background-color: #ffffff !important;
     color: var(--text) !important;
     font-family: 'Manrope', sans-serif !important;
     font-size: 0.9rem !important;
-    padding: 0.5rem 0.75rem !important;
-    transition: border-color 0.15s ease !important;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
 }
+
 .stTextInput > div > div > input:focus,
-.stTextArea > div > div > textarea:focus {
+.stTextArea > div > div > textarea:focus,
+.stNumberInput > div > div > input:focus {
     border-color: var(--primary-light) !important;
     box-shadow: 0 0 0 3px rgba(37,99,168,0.12) !important;
     outline: none !important;
+    background-color: #ffffff !important;
+    color: var(--text) !important;
 }
 
 /* Selectbox */
-.stSelectbox > div > div {
-    border-radius: var(--radius-sm) !important;
+.stSelectbox > div > div,
+.stMultiSelect > div > div {
     border: 1.5px solid var(--border) !important;
-    background: var(--surface) !important;
+    border-radius: var(--radius-sm) !important;
+    background-color: #ffffff !important;
+    color: var(--text) !important;
     font-family: 'Manrope', sans-serif !important;
-    font-size: 0.9rem !important;
 }
 
-/* Input labels */
+/* ALL input labels — force dark text so they're always visible */
 .stTextInput label,
 .stTextArea label,
 .stNumberInput label,
 .stSelectbox label,
 .stDateInput label,
 .stMultiSelect label,
-.stRadio label {
+.stRadio > label,
+.stCheckbox > label,
+[data-testid="stWidgetLabel"],
+[data-testid="stWidgetLabel"] p {
     color: var(--text) !important;
     font-family: 'Manrope', sans-serif !important;
     font-weight: 600 !important;
@@ -169,95 +298,175 @@ footer, #MainMenu { visibility: hidden !important; }
     letter-spacing: 0.01em !important;
 }
 
-/* ── Tabs ──────────────────────────────────────────────────────────────── */
+/* Number input +/- buttons */
+.stNumberInput button {
+    background-color: var(--surface2) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--border) !important;
+    box-shadow: none !important;
+}
+.stNumberInput button:hover {
+    background-color: var(--border) !important;
+    color: var(--text) !important;
+    transform: none !important;
+}
+.stNumberInput button p,
+.stNumberInput button span {
+    color: var(--text) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TABS
+═══════════════════════════════════════════════════════════════════════════ */
 .stTabs [data-baseweb="tab-list"] {
-    background: var(--surface2) !important;
+    background-color: var(--surface2) !important;
     border-radius: 10px !important;
     padding: 4px !important;
     gap: 2px !important;
     border: none !important;
 }
 .stTabs [data-baseweb="tab"] {
-    background: transparent !important;
+    background-color: transparent !important;
     border-radius: 7px !important;
     font-family: 'Manrope', sans-serif !important;
     font-weight: 600 !important;
-    font-size: 0.88rem !important;
+    font-size: 0.87rem !important;
     color: var(--text-muted) !important;
-    padding: 0.4rem 1.2rem !important;
-    transition: all 0.15s ease !important;
     border: none !important;
+    padding: 0.4rem 1.1rem !important;
+    transition: all 0.15s !important;
 }
 .stTabs [aria-selected="true"] {
-    background: var(--primary) !important;
-    color: white !important;
+    background-color: var(--primary) !important;
+    color: #ffffff !important;
     box-shadow: var(--shadow-sm) !important;
 }
+/* Tab panel text fix */
+.stTabs [data-baseweb="tab-panel"] {
+    background-color: transparent !important;
+    color: var(--text) !important;
+}
 
-/* ── Expander ──────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   EXPANDERS
+═══════════════════════════════════════════════════════════════════════════ */
 div[data-testid="stExpander"] {
-    background: var(--surface) !important;
+    background-color: var(--surface) !important;
     border-radius: var(--radius) !important;
     border: 1.5px solid var(--border) !important;
     box-shadow: var(--shadow-sm) !important;
     margin-bottom: 0.6rem !important;
     overflow: hidden !important;
 }
-div[data-testid="stExpander"] summary {
+div[data-testid="stExpander"] > details > summary {
     font-family: 'Manrope', sans-serif !important;
     font-weight: 600 !important;
     color: var(--text) !important;
-    padding: 0.75rem 1rem !important;
+    background-color: var(--surface) !important;
+    padding: 0.8rem 1rem !important;
+}
+div[data-testid="stExpander"] > details > summary:hover {
+    background-color: var(--surface3) !important;
+}
+/* Text inside expander */
+div[data-testid="stExpander"] p,
+div[data-testid="stExpander"] span,
+div[data-testid="stExpander"] label,
+div[data-testid="stExpander"] [data-testid="stMarkdownContainer"] p {
+    color: var(--text) !important;
 }
 
-/* ── Metric & dataframes ───────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   MARKDOWN & GENERAL TEXT
+═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stMarkdownContainer"] h1,
+[data-testid="stMarkdownContainer"] h2,
+[data-testid="stMarkdownContainer"] h3 {
+    color: var(--text) !important;
+    font-family: 'Manrope', sans-serif !important;
+}
+[data-testid="stMarkdownContainer"] h1,
+[data-testid="stMarkdownContainer"] h2,
+[data-testid="stMarkdownContainer"] h3 {
+    font-family: 'Sora', sans-serif !important;
+    color: var(--primary) !important;
+}
+
+/* st.caption */
+.stCaptionContainer,
+[data-testid="stCaptionContainer"] {
+    color: var(--text-muted) !important;
+    font-size: 0.8rem !important;
+    font-family: 'Manrope', sans-serif !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   METRICS
+═══════════════════════════════════════════════════════════════════════════ */
 [data-testid="stMetric"] {
-    background: var(--surface) !important;
+    background-color: var(--surface) !important;
     border-radius: var(--radius) !important;
     padding: 1.1rem 1.25rem !important;
     border: 1px solid var(--border) !important;
     box-shadow: var(--shadow-sm) !important;
 }
-[data-testid="stMetricLabel"] {
+[data-testid="stMetricLabel"] p {
     color: var(--text-muted) !important;
     font-family: 'Manrope', sans-serif !important;
-    font-size: 0.8rem !important;
-    font-weight: 600 !important;
+    font-size: 0.78rem !important;
+    font-weight: 700 !important;
     letter-spacing: 0.06em !important;
     text-transform: uppercase !important;
 }
 [data-testid="stMetricValue"] {
     color: var(--primary) !important;
     font-family: 'Sora', sans-serif !important;
-    font-weight: 700 !important;
+    font-weight: 800 !important;
+}
+[data-testid="stMetricDelta"] {
+    font-family: 'Manrope', sans-serif !important;
 }
 
-/* ── Alert/info boxes ──────────────────────────────────────────────────── */
-[data-testid="stAlert"] {
+/* ═══════════════════════════════════════════════════════════════════════════
+   DATAFRAME / TABLE
+═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stDataFrame"] {
+    border-radius: var(--radius-sm) !important;
+    border: 1px solid var(--border) !important;
+    overflow: hidden !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ALERTS
+═══════════════════════════════════════════════════════════════════════════ */
+[data-testid="stAlert"],
+div[data-testid="stAlert"] {
     border-radius: var(--radius-sm) !important;
     font-family: 'Manrope', sans-serif !important;
     font-size: 0.9rem !important;
 }
 
-/* ── Markdown text override ────────────────────────────────────────────── */
-[data-testid="stMarkdownContainer"] p,
-[data-testid="stMarkdownContainer"] li,
-[data-testid="stMarkdownContainer"] span {
-    color: var(--text) !important;
-    font-family: 'Manrope', sans-serif !important;
+/* ═══════════════════════════════════════════════════════════════════════════
+   DIVIDERS
+═══════════════════════════════════════════════════════════════════════════ */
+hr {
+    border-color: var(--border) !important;
+    margin: 1.2rem 0 !important;
 }
 
-/* ──────────────────────────────────────────────────────────────────────── */
-/*  CUSTOM COMPONENT CLASSES                                                */
-/* ──────────────────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   CUSTOM HTML COMPONENT CLASSES
+═══════════════════════════════════════════════════════════════════════════ */
 
-/* Metric card */
+/* ── Metric card ── */
 .metric-card {
-    background: var(--surface);
-    border-radius: var(--radius);
+    background: #ffffff;
+    border-radius: 14px;
     padding: 1.4rem 1.5rem;
-    box-shadow: var(--shadow);
-    border: 1px solid var(--border);
+    box-shadow: 0 4px 16px rgba(15,42,74,0.10);
+    border: 1px solid #d9d5cc;
     text-align: center;
     transition: transform 0.2s ease, box-shadow 0.2s ease;
     position: relative;
@@ -268,95 +477,94 @@ div[data-testid="stExpander"] summary {
     position: absolute;
     top: 0; left: 0; right: 0;
     height: 3px;
-    background: linear-gradient(90deg, var(--primary), var(--accent));
+    background: linear-gradient(90deg, #0f2a4a, #d4960a);
 }
-.metric-card:hover {
-    transform: translateY(-3px);
-    box-shadow: var(--shadow-lg);
-}
-.metric-icon {
-    font-size: 1.6rem;
-    margin-bottom: 0.4rem;
-    display: block;
-}
+.metric-card:hover { transform: translateY(-3px); box-shadow: 0 8px 32px rgba(15,42,74,0.14); }
+.metric-icon { font-size: 1.6rem; margin-bottom: 0.35rem; display: block; }
 .metric-value {
     font-family: 'Sora', sans-serif;
-    font-size: 1.9rem;
+    font-size: 1.85rem;
     font-weight: 800;
-    color: var(--primary);
+    color: #0f2a4a;
     line-height: 1.1;
     display: block;
 }
 .metric-label {
-    font-size: 0.75rem;
-    color: var(--text-muted);
+    font-size: 0.73rem;
+    color: #6b7280;
     margin-top: 0.3rem;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     font-weight: 600;
     display: block;
+    font-family: 'Manrope', sans-serif;
 }
 
-/* Property card */
+/* ── Section header ── */
+.section-header {
+    font-family: 'Sora', sans-serif;
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: #0f2a4a;
+    margin-bottom: 1.1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2.5px solid #d4960a;
+    letter-spacing: -0.01em;
+}
+
+/* ── Property card ── */
 .property-card {
-    background: var(--surface);
-    border-radius: var(--radius);
+    background: #ffffff;
+    border-radius: 14px;
     overflow: hidden;
-    box-shadow: var(--shadow);
-    border: 1px solid var(--border);
+    box-shadow: 0 4px 16px rgba(15,42,74,0.10);
+    border: 1px solid #d9d5cc;
     transition: transform 0.25s ease, box-shadow 0.25s ease;
     margin-bottom: 1rem;
 }
-.property-card:hover {
-    transform: translateY(-5px);
-    box-shadow: var(--shadow-lg);
-}
+.property-card:hover { transform: translateY(-5px); box-shadow: 0 8px 32px rgba(15,42,74,0.14); }
 .property-img {
     width: 100%;
     height: 190px;
-    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-mid) 55%, var(--accent) 100%);
+    background: linear-gradient(135deg, #0f2a4a 0%, #1a4070 55%, #d4960a 100%);
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 3.5rem;
-    position: relative;
 }
 .property-body { padding: 1.2rem 1.25rem 1rem; }
 .property-title {
     font-family: 'Sora', sans-serif;
     font-size: 1.05rem;
     font-weight: 700;
-    color: var(--text);
+    color: #111827;
     margin-bottom: 0.35rem;
     line-height: 1.3;
 }
 .property-location {
     font-size: 0.82rem;
-    color: var(--text-muted);
+    color: #6b7280;
     margin-bottom: 0.7rem;
     font-weight: 500;
 }
 .price-tag {
     display: inline-block;
-    background: var(--primary);
-    color: white;
+    background: #0f2a4a;
+    color: #ffffff;
     padding: 0.2rem 0.7rem;
     border-radius: 20px;
     font-size: 0.8rem;
     font-weight: 700;
     margin-right: 0.4rem;
     font-family: 'Manrope', sans-serif;
-    letter-spacing: 0.01em;
 }
-.price-tag.accent {
-    background: var(--accent);
-}
+.price-tag.accent { background: #d4960a; }
 
-/* Status badges */
+/* ── Status badges ── */
 .badge {
     display: inline-flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: 0.25rem;
     padding: 0.22rem 0.7rem;
     border-radius: 20px;
     font-size: 0.73rem;
@@ -365,94 +573,52 @@ div[data-testid="stExpander"] summary {
     letter-spacing: 0.04em;
     text-transform: uppercase;
 }
-.badge-approved  { background: var(--success-bg); color: var(--success); }
-.badge-pending   { background: var(--warning-bg); color: var(--warning); }
-.badge-rejected  { background: var(--danger-bg);  color: var(--danger); }
-.badge-confirmed { background: var(--info-bg);    color: var(--info); }
+.badge-approved  { background: #dcfce7; color: #15803d; }
+.badge-pending   { background: #fef3c7; color: #b45309; }
+.badge-rejected  { background: #fee2e2; color: #b91c1c; }
+.badge-confirmed { background: #dbeafe; color: #1d4ed8; }
 .badge-cancelled { background: #f3f4f6; color: #6b7280; }
 .badge-apartment { background: #ede9fe; color: #6d28d9; }
-.badge-house     { background: var(--success-bg); color: #065f46; }
-.badge-active    { background: var(--success-bg); color: var(--success); }
-.badge-completed { background: var(--info-bg); color: var(--info); }
+.badge-house     { background: #dcfce7; color: #065f46; }
+.badge-active    { background: #dcfce7; color: #15803d; }
+.badge-completed { background: #dbeafe; color: #1d4ed8; }
 
-/* Section header */
-.section-header {
-    font-family: 'Sora', sans-serif;
-    font-size: 1.35rem;
-    font-weight: 800;
-    color: var(--primary);
-    margin-bottom: 1.1rem;
-    padding-bottom: 0.55rem;
-    border-bottom: 2.5px solid var(--accent);
-    letter-spacing: -0.01em;
-}
-
-/* Trend card */
+/* ── Trend card ── */
 .trend-card {
-    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-mid) 100%);
-    border-radius: var(--radius);
+    background: linear-gradient(135deg, #0f2a4a 0%, #1a4070 100%);
+    border-radius: 14px;
     padding: 1.4rem;
-    color: white;
+    color: #ffffff;
     position: relative;
     overflow: hidden;
     margin-bottom: 0.75rem;
-    box-shadow: var(--shadow);
+    box-shadow: 0 4px 16px rgba(15,42,74,0.20);
     transition: transform 0.2s ease;
 }
 .trend-card:hover { transform: translateY(-3px); }
-.trend-card::after {
-    content: '🔥';
-    position: absolute;
-    right: 1rem;
-    top: 0.9rem;
-    font-size: 1.4rem;
-}
-.trend-card::before {
-    content: '';
-    position: absolute;
-    bottom: -20px; right: -20px;
-    width: 80px; height: 80px;
-    border-radius: 50%;
-    background: rgba(212,150,10,0.20);
-}
+.trend-card::after { content: '🔥'; position: absolute; right: 1rem; top: 0.9rem; font-size: 1.4rem; }
 .trend-score {
     font-family: 'Sora', sans-serif;
     font-size: 2.1rem;
     font-weight: 800;
     line-height: 1;
-    color: var(--accent-light);
+    color: #f0b429;
 }
-.trend-label {
-    font-size: 0.68rem;
-    opacity: 0.7;
-    text-transform: uppercase;
-    letter-spacing: 0.09em;
-    font-weight: 600;
-    margin-bottom: 0.2rem;
-}
-.trend-name {
-    font-weight: 700;
-    font-size: 0.95rem;
-    margin-top: 0.3rem;
-    color: white;
-}
-.trend-meta {
-    font-size: 0.8rem;
-    opacity: 0.82;
-    margin-top: 0.2rem;
-}
+.trend-label { font-size: 0.68rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.09em; font-weight: 600; margin-bottom: 0.2rem; }
+.trend-name { font-weight: 700; font-size: 0.95rem; margin-top: 0.3rem; color: #ffffff; }
+.trend-meta { font-size: 0.8rem; opacity: 0.82; margin-top: 0.2rem; }
 
-/* Hero banner */
+/* ── Hero banner ── */
 .hero-banner {
-    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-mid) 45%, #0d3a6e 100%);
-    border-radius: var(--radius-lg);
+    background: linear-gradient(135deg, #0f2a4a 0%, #1a4070 50%, #0d3a6e 100%);
+    border-radius: 20px;
     padding: 2.8rem 2.5rem;
-    color: white;
+    color: #ffffff;
     text-align: center;
     margin-bottom: 2rem;
     position: relative;
     overflow: hidden;
-    box-shadow: var(--shadow-lg);
+    box-shadow: 0 8px 32px rgba(15,42,74,0.18);
 }
 .hero-banner::before {
     content: '';
@@ -460,91 +626,52 @@ div[data-testid="stExpander"] summary {
     top: -40px; right: -40px;
     width: 200px; height: 200px;
     border-radius: 50%;
-    background: rgba(212,150,10,0.18);
-}
-.hero-banner::after {
-    content: '';
-    position: absolute;
-    bottom: -50px; left: -30px;
-    width: 160px; height: 160px;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.05);
+    background: rgba(212,150,10,0.15);
 }
 .hero-banner h1 {
     font-family: 'Sora', sans-serif !important;
-    font-size: 2.3rem !important;
+    font-size: 2.2rem !important;
     font-weight: 800 !important;
     margin-bottom: 0.5rem !important;
-    color: white !important;
-    position: relative;
-    z-index: 1;
+    color: #ffffff !important;
 }
-.hero-banner p {
-    color: rgba(255,255,255,0.88) !important;
-    position: relative;
-    z-index: 1;
-}
+.hero-banner p { color: rgba(255,255,255,0.88) !important; }
 
-/* Amenity tags */
+/* ── Amenity tags ── */
 .amenity-tag {
     display: inline-block;
-    background: var(--surface3);
-    color: var(--primary);
+    background: #f8f6f2;
+    color: #0f2a4a;
     padding: 0.18rem 0.6rem;
     border-radius: 6px;
     font-size: 0.75rem;
     margin: 0.15rem;
-    border: 1px solid var(--border);
+    border: 1px solid #d9d5cc;
     font-weight: 500;
     font-family: 'Manrope', sans-serif;
 }
 
-/* Booking card */
+/* ── Booking card ── */
 .booking-card {
-    background: var(--surface);
-    border-radius: var(--radius-sm);
+    background: #ffffff;
+    border-radius: 8px;
     padding: 1.2rem 1.4rem;
-    border: 1.5px solid var(--border);
+    border: 1.5px solid #d9d5cc;
     margin-bottom: 0.8rem;
-    box-shadow: var(--shadow-sm);
+    box-shadow: 0 1px 3px rgba(15,42,74,0.08);
     transition: box-shadow 0.15s ease;
 }
-.booking-card:hover {
-    box-shadow: var(--shadow);
-}
+.booking-card:hover { box-shadow: 0 4px 16px rgba(15,42,74,0.10); }
+.booking-card b { color: #111827; }
 
-/* Alert boxes (custom) */
-.alert-box {
-    padding: 1rem 1.25rem;
-    border-radius: var(--radius-sm);
-    margin-bottom: 1rem;
-    font-size: 0.9rem;
-    font-family: 'Manrope', sans-serif;
-    font-weight: 500;
-    line-height: 1.5;
-}
-.alert-success {
-    background: var(--success-bg);
-    border-left: 4px solid var(--success);
-    color: #14532d;
-}
-.alert-warning {
-    background: var(--warning-bg);
-    border-left: 4px solid #d97706;
-    color: #78350f;
-}
-.alert-info {
-    background: var(--info-bg);
-    border-left: 4px solid #2563eb;
-    color: #1e3a8a;
-}
-.alert-danger {
-    background: var(--danger-bg);
-    border-left: 4px solid var(--danger);
-    color: #7f1d1d;
-}
+/* ── Custom alert boxes ── */
+.alert-box { padding: 1rem 1.25rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.9rem; font-family: 'Manrope', sans-serif; font-weight: 500; }
+.alert-success { background: #dcfce7; border-left: 4px solid #15803d; color: #14532d; }
+.alert-warning { background: #fef3c7; border-left: 4px solid #d97706; color: #78350f; }
+.alert-info    { background: #dbeafe; border-left: 4px solid #2563eb; color: #1e3a8a; }
+.alert-danger  { background: #fee2e2; border-left: 4px solid #dc2626; color: #7f1d1d; }
 
-/* Sidebar logo block */
+/* ── Sidebar logo ── */
 .sidebar-logo {
     text-align: center;
     padding: 1.6rem 1rem 1.2rem;
@@ -554,10 +681,9 @@ div[data-testid="stExpander"] summary {
 .sidebar-logo h1 {
     font-family: 'Sora', sans-serif !important;
     font-size: 1.45rem !important;
-    color: white !important;
+    color: #ffffff !important;
     margin: 0 !important;
     font-weight: 800 !important;
-    letter-spacing: -0.01em !important;
 }
 .sidebar-logo p {
     font-size: 0.72rem !important;
@@ -568,36 +694,32 @@ div[data-testid="stExpander"] summary {
     font-weight: 500 !important;
 }
 
-/* Sidebar user info */
+/* ── Sidebar user chip ── */
 .sidebar-user {
-    background: rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.09);
     border-radius: 10px;
-    padding: 0.75rem 1rem;
-    margin: 0.5rem 0.75rem;
+    padding: 0.7rem 0.9rem;
+    margin: 0 0.5rem 0.75rem;
     border: 1px solid rgba(255,255,255,0.12);
 }
 .sidebar-user .user-name {
     font-size: 0.9rem;
     font-weight: 700;
-    color: white !important;
+    color: #ffffff !important;
     display: block;
+    font-family: 'Manrope', sans-serif;
 }
 .sidebar-user .user-role {
-    font-size: 0.72rem;
-    color: rgba(255,255,255,0.60) !important;
+    font-size: 0.7rem;
+    color: rgba(255,255,255,0.55) !important;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     font-weight: 600;
-}
-
-/* Data table */
-[data-testid="stDataFrame"] {
-    border-radius: var(--radius-sm) !important;
-    border: 1px solid var(--border) !important;
-    overflow: hidden !important;
+    font-family: 'Manrope', sans-serif;
 }
 </style>
 """
+
 
 def inject_css():
     st.markdown(THEME_CSS, unsafe_allow_html=True)
@@ -619,26 +741,17 @@ def property_emoji(ptype):
 
 def status_badge(status):
     icons = {
-        "approved":  "✓",
-        "pending":   "◷",
-        "rejected":  "✕",
-        "confirmed": "✓",
-        "cancelled": "✕",
-        "active":    "✓",
-        "completed": "✓",
+        "approved":  "✓", "pending":   "◷", "rejected":  "✕",
+        "confirmed": "✓", "cancelled": "✕", "active":    "✓", "completed": "✓",
     }
-    badges = {
-        "approved":  "badge-approved",
-        "pending":   "badge-pending",
-        "rejected":  "badge-rejected",
-        "confirmed": "badge-confirmed",
-        "cancelled": "badge-cancelled",
-        "apartment": "badge-apartment",
-        "house":     "badge-house",
-        "active":    "badge-active",
+    classes = {
+        "approved":  "badge-approved",  "pending":   "badge-pending",
+        "rejected":  "badge-rejected",  "confirmed": "badge-confirmed",
+        "cancelled": "badge-cancelled", "apartment": "badge-apartment",
+        "house":     "badge-house",     "active":    "badge-active",
         "completed": "badge-completed",
     }
-    cls  = badges.get(status, "badge-pending")
+    cls  = classes.get(status, "badge-pending")
     icon = icons.get(status, "")
     return f'<span class="badge {cls}">{icon} {status.title()}</span>'
 
@@ -652,7 +765,7 @@ def sidebar_nav(user):
         '<h1>🏘️ PropBook</h1>'
         '<p>Philippines Property Booking</p>'
         '</div>',
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
     role_emoji = {"admin": "🛡️", "owner": "🏠", "guest": "👤"}.get(role, "👤")
@@ -661,33 +774,15 @@ def sidebar_nav(user):
         f'<span class="user-name">{role_emoji} {name}</span>'
         f'<span class="user-role">{role}</span>'
         f'</div>',
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
-    st.sidebar.markdown("")  # spacer
-
     if role == "admin":
-        pages = [
-            "📊 Dashboard",
-            "🏘️ Properties",
-            "👥 Users",
-            "📋 Bookings",
-            "📈 Property Trends",
-        ]
+        pages = ["📊 Dashboard", "🏘️ Properties", "👥 Users", "📋 Bookings", "📈 Property Trends"]
     elif role == "owner":
-        pages = [
-            "📊 Dashboard",
-            "🏠 My Properties",
-            "📋 My Bookings",
-            "➕ Add Property",
-            "📈 Property Trends",
-        ]
+        pages = ["📊 Dashboard", "🏠 My Properties", "📋 My Bookings", "➕ Add Property", "📈 Property Trends"]
     else:
-        pages = [
-            "🔍 Browse Properties",
-            "📋 My Bookings",
-            "👤 My Profile",
-        ]
+        pages = ["🔍 Browse Properties", "📋 My Bookings", "👤 My Profile"]
 
     choice = st.sidebar.radio("Navigate", pages, label_visibility="collapsed")
 
