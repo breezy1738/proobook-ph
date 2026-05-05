@@ -128,6 +128,22 @@ def owner_dashboard(user):
 def owner_properties(user):
     owner_id = _int(user['id'])
     st.markdown('<div class="section-header">🏠 My Properties</div>', unsafe_allow_html=True)
+
+    # Ensure is_maintenance column exists (safe migration — runs once, no-op after)
+    try:
+        _mc = get_conn()
+        _cur = _mc.cursor()
+        if USE_POSTGRES:
+            _cur.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS is_maintenance INTEGER DEFAULT 0")
+        else:
+            _cols = [r[1] for r in _cur.execute("PRAGMA table_info(properties)").fetchall()]
+            if "is_maintenance" not in _cols:
+                _cur.execute("ALTER TABLE properties ADD COLUMN is_maintenance INTEGER DEFAULT 0")
+        _mc.commit()
+        release_conn(_mc)
+    except Exception:
+        pass
+
     # FIX #1: use df_query
     df = df_query(
         "SELECT * FROM properties WHERE owner_id=%s ORDER BY created_at DESC",
