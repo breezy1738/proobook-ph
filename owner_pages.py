@@ -7,16 +7,19 @@ from ml_model import get_monthly_forecast, predict_trending_properties, predict_
 from datetime import datetime
 
 # ─────────────────────────────────────────────────────────────────────────────
-# safe int coercion — psycopg2 returns Decimal for NUMERIC/REAL cols
+# FIX #6: safe int coercion — psycopg2 returns Decimal for NUMERIC/REAL cols
 # ─────────────────────────────────────────────────────────────────────────────
 def _int(val):
+    """Convert any numeric-like value (int, float, Decimal, str) to Python int."""
     try:
         return int(float(val))
     except (TypeError, ValueError):
         return 0
 
 
+
 def _encode_images(uploaded_files):
+    """Convert uploaded files to base64 JSON list for DB storage."""
     imgs = []
     for f in uploaded_files:
         b64 = base64.b64encode(f.read()).decode('utf-8')
@@ -25,6 +28,7 @@ def _encode_images(uploaded_files):
 
 
 def _show_property_photos(images_json, max_cols=3):
+    """Display property photos from JSON base64 string."""
     if not images_json:
         return
     try:
@@ -39,72 +43,6 @@ def _show_property_photos(images_json, max_cols=3):
         pass
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Maintenance toggle helper
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _maintenance_banner(prop_id: int, current_status: str):
-    """
-    Show the maintenance toggle card at the top of every property expander.
-    - If status == 'maintenance' → show yellow warning + "Mark as Available" button
-    - If status == 'approved'    → show green badge  + "Put Under Maintenance" button
-    - Other statuses (pending/rejected) → show info only, no toggle
-    Returns True if the property is currently under maintenance.
-    """
-    is_maintenance = current_status == 'maintenance'
-
-    if is_maintenance:
-        st.markdown("""
-        <div style="background:#fef3c7;border:1.5px solid #fcd34d;border-left:5px solid #f59e0b;
-                    border-radius:10px;padding:0.85rem 1.1rem;margin-bottom:0.8rem;">
-            <span style="font-size:1.1rem;">🔧</span>
-            <strong style="color:#92400e;"> Under Maintenance</strong>
-            <span style="color:#78350f;font-size:0.85rem;">
-             — This property is hidden from guests and cannot be booked until restored.
-            </span>
-        </div>
-        """, unsafe_allow_html=True)
-
-        col_btn, col_info = st.columns([1, 3])
-        with col_btn:
-            if st.button("✅ Mark as Available", key=f"restore_{prop_id}", type="primary"):
-                c = get_conn()
-                cur = c.cursor()
-                cur.execute(adapt_sql("UPDATE properties SET status='approved' WHERE id=%s"), (prop_id,))
-                c.commit(); release_conn(c)
-                st.success("✅ Property restored! Guests can now see and book it.")
-                st.rerun()
-        with col_info:
-            st.caption("Restoring will re-list the property as **Approved** and make it bookable again.")
-
-    elif current_status == 'approved':
-        col_badge, col_btn, col_info = st.columns([1, 1.4, 3])
-        with col_badge:
-            st.markdown("""
-            <div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;
-                        padding:0.4rem 0.8rem;text-align:center;font-size:0.82rem;
-                        font-weight:700;color:#14532d;margin-top:0.3rem;">
-                ✅ Available
-            </div>
-            """, unsafe_allow_html=True)
-        with col_btn:
-            if st.button("🔧 Put Under Maintenance", key=f"maint_{prop_id}"):
-                c = get_conn()
-                cur = c.cursor()
-                cur.execute(adapt_sql("UPDATE properties SET status='maintenance' WHERE id=%s"), (prop_id,))
-                c.commit(); release_conn(c)
-                st.warning("🔧 Property set to Under Maintenance. It is now hidden from guests.")
-                st.rerun()
-        with col_info:
-            st.caption("Use maintenance mode when fixing something — guests won't see it until restored.")
-
-    else:
-        # pending / rejected — show status only, no maintenance toggle
-        st.caption(f"ℹ️ Maintenance toggle is available only for approved properties. Current status: **{current_status}**")
-
-    return is_maintenance
-
-
 def owner_dashboard(user):
     owner_id = _int(user['id'])
     conn = get_conn()
@@ -114,8 +52,6 @@ def owner_dashboard(user):
     row = c.fetchone(); active = _int(row['n']) if row else 0
     c.execute(adapt_sql("SELECT COUNT(*) as n FROM properties WHERE owner_id=%s AND status='pending'"), (owner_id,))
     row = c.fetchone(); pending = _int(row['n']) if row else 0
-    c.execute(adapt_sql("SELECT COUNT(*) as n FROM properties WHERE owner_id=%s AND status='maintenance'"), (owner_id,))
-    row = c.fetchone(); maintenance_count = _int(row['n']) if row else 0
     c.execute(adapt_sql("""
         SELECT COUNT(*) as n FROM bookings b
         JOIN properties p ON b.property_id = p.id
@@ -128,25 +64,22 @@ def owner_dashboard(user):
         WHERE p.owner_id=%s AND b.status='confirmed'
     """), (owner_id,))
     row = c.fetchone(); revenue = float(row['rev']) if row else 0.0
-    release_conn(conn)
+    conn.close()
 
     st.markdown(f'<div class="section-header">📊 Owner Dashboard — {user["name"]}</div>', unsafe_allow_html=True)
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4 = st.columns(4)
     with col1: st.markdown(metric_card(active, "Active Properties", "🏠"), unsafe_allow_html=True)
     with col2: st.markdown(metric_card(pending, "Pending Approval", "⏳"), unsafe_allow_html=True)
-    with col3: st.markdown(metric_card(maintenance_count, "Under Maintenance", "🔧"), unsafe_allow_html=True)
-    with col4: st.markdown(metric_card(total_bookings, "Total Bookings", "📋"), unsafe_allow_html=True)
-    with col5: st.markdown(metric_card(f"₱{revenue:,.0f}", "Revenue Earned", "💰"), unsafe_allow_html=True)
-
-    if maintenance_count > 0:
-        st.warning(f"🔧 **{maintenance_count} propert{'y is' if maintenance_count == 1 else 'ies are'} under maintenance** and hidden from guests. Go to **My Properties** to restore them.")
+    with col3: st.markdown(metric_card(total_bookings, "Total Bookings", "📋"), unsafe_allow_html=True)
+    with col4: st.markdown(metric_card(f"₱{revenue:,.0f}", "Revenue Earned", "💰"), unsafe_allow_html=True)
 
     st.markdown("---")
     col_l, col_r = st.columns(2)
 
     with col_l:
         st.markdown('<div class="section-header">📈 6-Month Booking Forecast</div>', unsafe_allow_html=True)
+        # FIX #1: use df_query instead of pd.read_sql_query with raw psycopg2 conn
         props = df_query(
             "SELECT id, title FROM properties WHERE owner_id=%s AND status='approved'",
             params=[owner_id]
@@ -168,6 +101,7 @@ def owner_dashboard(user):
 
     with col_r:
         st.markdown('<div class="section-header">🔔 Recent Booking Requests</div>', unsafe_allow_html=True)
+        # FIX #1: use df_query
         recent = df_query("""
             SELECT b.id, u.name as guest, b.check_in, b.check_out, b.total_price, b.status, p.title,
                    COALESCE(b.is_open_ended, 0) as is_open_ended
@@ -194,44 +128,36 @@ def owner_dashboard(user):
 def owner_properties(user):
     owner_id = _int(user['id'])
     st.markdown('<div class="section-header">🏠 My Properties</div>', unsafe_allow_html=True)
-
+    # FIX #1: use df_query
     df = df_query(
         "SELECT * FROM properties WHERE owner_id=%s ORDER BY created_at DESC",
         params=[owner_id]
     )
 
+    # Normalize is_active
+    if "is_active" in df.columns:
+        df["is_active"] = pd.to_numeric(df["is_active"], errors="coerce").fillna(1).astype(int)
+
     if df.empty:
         st.info("You haven't added any properties yet. Go to 'Add Property' to get started!")
         return
 
+    # Cast numeric columns (psycopg2 may return them as strings or Decimal)
     for col in ['id', 'nightly_price', 'monthly_price', 'max_guests', 'bedrooms', 'bathrooms', 'latitude', 'longitude']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
     for idx, (_, row) in enumerate(df.iterrows()):
         _status_icons = {
-            'approved':    '✅',
-            'pending':     '⏳',
-            'rejected':    '❌',
-            'maintenance': '🔧',
+            'approved': '✅', 'pending': '⏳', 'rejected': '❌'
         }
         _sicon = _status_icons.get(row['status'], '•')
-        status_label = "Under Maintenance" if row['status'] == 'maintenance' else row['status'].title()
-
-        with st.expander(
-            f"{property_emoji(row['type'])} {row['title']} | {_sicon} {status_label}",
-            expanded=False
-        ):
-            # ── Maintenance banner always at the top ──────────────────────────
-            is_maintenance = _maintenance_banner(_int(row['id']), row['status'])
-
-            st.markdown("---")
-
-            # ── Tabs: Details / Rooms / Edit (Edit locked during maintenance) ─
-            if is_maintenance:
-                tabs = st.tabs(["📋 Details", "🛏️ Rooms", "🔒 Edit (Locked)"])
-            else:
-                tabs = st.tabs(["📋 Details", "🛏️ Rooms", "✏️ Edit"])
+        _is_blocked = int(row.get('is_active', 1)) == 0
+        _blocked_label = " | 🚫 BLOCKED BY ADMIN" if _is_blocked else ""
+        with st.expander(f"{property_emoji(row['type'])} {row['title']} | {_sicon} {row['status'].title()}{_blocked_label}", expanded=False):
+            if _is_blocked:
+                st.error("🚫 This property has been **blocked by the admin**. Guests cannot view or book it until the admin unblocks it. Contact support if you believe this is a mistake.")
+            tabs = st.tabs(["📋 Details", "🛏️ Rooms", "✏️ Edit"])
 
             with tabs[0]:
                 col1, col2 = st.columns(2)
@@ -252,6 +178,7 @@ def owner_properties(user):
                 if row['description']:
                     st.markdown(f"**Description:** {row['description']}")
 
+                # Show photos in details tab
                 images_json = row.get('images') or ''
                 if images_json:
                     try:
@@ -272,27 +199,11 @@ def owner_properties(user):
                     st.info("Room management is for apartment-type properties only.")
 
             with tabs[2]:
-                if is_maintenance:
-                    # ── Edit locked during maintenance ────────────────────────
-                    st.markdown("""
-                    <div style="background:#fef3c7;border:1.5px solid #fcd34d;border-left:5px solid #f59e0b;
-                                border-radius:10px;padding:1.2rem 1.4rem;text-align:center;margin:1rem 0;">
-                        <div style="font-size:2rem;">🔒</div>
-                        <div style="font-weight:700;color:#92400e;font-size:1rem;margin-top:0.4rem;">
-                            Editing is locked while under maintenance
-                        </div>
-                        <div style="color:#78350f;font-size:0.85rem;margin-top:0.3rem;">
-                            To edit this property, first click
-                            <strong>"✅ Mark as Available"</strong> above to restore it,
-                            then come back here to make changes.
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    _edit_property(row, idx)
+                _edit_property(row, idx)
 
 
 def _manage_rooms(property_id):
+    # FIX #1: use df_query
     rooms = df_query(
         "SELECT * FROM rooms WHERE property_id=%s",
         params=[property_id]
@@ -305,6 +216,7 @@ def _manage_rooms(property_id):
     else:
         from datetime import date as _date
         today = _date.today().isoformat()
+        # FIX #1: use df_query
         active_bookings = df_query("""
             SELECT room_id FROM bookings
             WHERE property_id=%s AND status IN ('confirmed','pending')
@@ -312,7 +224,9 @@ def _manage_rooms(property_id):
         """, params=[property_id, today])
         booked_room_ids = set(active_bookings['room_id'].tolist()) if not active_bookings.empty else set()
 
+        # Ensure id column is numeric
         rooms['id'] = pd.to_numeric(rooms['id'], errors='coerce').fillna(0).astype(int)
+        # FIX #4: safe boolean for is_available — cast to int first to avoid "0" string pitfall
         rooms['is_available'] = pd.to_numeric(rooms['is_available'], errors='coerce').fillna(0).astype(int)
 
         for _, rm in rooms.iterrows():
@@ -320,6 +234,7 @@ def _manage_rooms(property_id):
             with col1:
                 st.markdown(f"🛏️ Room {rm['room_number']} — Floor {rm['floor']} — {rm['room_type'].title()} (Cap: {rm['capacity']})")
             with col2:
+                # FIX #4: compare to integer 0, not bool() of possibly-string value
                 if rm['is_available'] == 0:
                     st.markdown("🔧 Closed (maintenance)")
                 elif _int(rm['id']) in booked_room_ids:
@@ -330,13 +245,14 @@ def _manage_rooms(property_id):
                 toggle_label = "🔓 Reopen" if rm['is_available'] == 0 else "🔧 Close"
                 if st.button(toggle_label, key=f"tog_{rm['id']}"):
                     room_id = _int(rm['id'])
+                    # FIX #3: use CASE WHEN instead of arithmetic to toggle — safe in both Postgres & SQLite
                     c = get_conn()
                     cur = c.cursor()
                     cur.execute(
                         adapt_sql("UPDATE rooms SET is_available = CASE WHEN is_available = 1 THEN 0 ELSE 1 END WHERE id=%s"),
                         (room_id,)
                     )
-                    c.commit(); release_conn(c); st.rerun()
+                    c.commit(); c.close(); st.rerun()
 
     st.markdown("---")
     st.markdown("**Add New Room:**")
@@ -355,7 +271,7 @@ def _manage_rooms(property_id):
                 cur = c.cursor()
                 cur.execute(adapt_sql("INSERT INTO rooms (property_id, room_number, floor, room_type, capacity, description) VALUES (%s,%s,%s,%s,%s,%s)"),
                           (property_id, rnum, floor, rtype, capacity, desc))
-                c.commit(); release_conn(c)
+                c.commit(); c.close()
                 st.success(f"Room {rnum} added!"); st.rerun()
             else:
                 st.error("Room number is required.")
@@ -363,7 +279,7 @@ def _manage_rooms(property_id):
 
 def _edit_property(row, idx=0):
     prop_id = _int(row['id'])
-    sk = f"ep_{prop_id}_{idx}"
+    sk = f"ep_{prop_id}_{idx}"  # unique session-state key prefix
 
     st.markdown("**Edit Property Details**")
     st.text_input("Title",                       value=row['title'],              key=f"{sk}_title")
@@ -381,12 +297,14 @@ def _edit_property(row, idx=0):
     st.markdown("---")
     st.markdown("**📸 Property Photos**")
 
+    # Load existing photos into session state for per-photo deletion
     existing_images = row.get('images') or ''
     try:
         current_imgs = json.loads(existing_images) if existing_images else []
     except Exception:
         current_imgs = []
 
+    # Per-photo delete buttons
     if current_imgs:
         st.caption("Current photos (click ✕ to remove):")
         keep_imgs = list(current_imgs)
@@ -396,11 +314,12 @@ def _edit_property(row, idx=0):
                 st.image(img_data, use_container_width=True)
                 if st.button("✕ Remove", key=f"{sk}_del_photo_{pi}"):
                     keep_imgs.remove(img_data)
+                    # Save immediately
                     c2 = get_conn()
                     cur2 = c2.cursor()
                     new_val = json.dumps(keep_imgs) if keep_imgs else None
                     cur2.execute(adapt_sql("UPDATE properties SET images=%s WHERE id=%s"), (new_val, prop_id))
-                    c2.commit(); cur2.close(); release_conn(c2)
+                    c2.commit(); cur2.close(); c2.close()
                     st.success("Photo removed."); st.rerun()
         existing_images = json.dumps(keep_imgs) if keep_imgs else ''
     else:
@@ -429,6 +348,7 @@ def _edit_property(row, idx=0):
         bathrooms   = st.session_state[f"{sk}_baths"]
         amenities   = st.session_state[f"{sk}_amenities"]
 
+        # Merge existing + new photos
         try:
             existing_list = json.loads(existing_images) if existing_images else []
         except Exception:
@@ -451,7 +371,7 @@ def _edit_property(row, idx=0):
                 final_images, prop_id))
             c.commit()
             cur.close()
-            release_conn(c)
+            c.close()
             st.success("✅ Property updated successfully!")
             st.rerun()
         except Exception as e:
@@ -520,13 +440,17 @@ def owner_add_property(user):
             if not title or not city or not address or nightly_price <= 0 or monthly_price <= 0:
                 st.error("Please fill in all required fields with valid prices.")
             else:
+                # Check for duplicate title under same owner
                 _chk = get_conn()
                 _cur = _chk.cursor()
                 _cur.execute(adapt_sql(
                     "SELECT id FROM properties WHERE owner_id=%s AND LOWER(title)=LOWER(%s)"
                 ), (owner_id, title.strip()))
                 _dup = _cur.fetchone()
-                release_conn(_chk)
+                if USE_POSTGRES:
+                    release_conn(_chk)
+                else:
+                    _chk.close()
 
                 if _dup:
                     st.error(f'❌ You already have a property named "{title.strip()}". Please use a different title.')
@@ -534,6 +458,7 @@ def owner_add_property(user):
                     conn = get_conn()
                     cur = conn.cursor()
 
+                    # Encode uploaded photos
                     photos_json = None
                     if uploaded_photos:
                         imgs = []
@@ -565,8 +490,9 @@ def owner_add_property(user):
 
                     if prop_id is None:
                         st.error("Failed to retrieve new property ID. Please try again.")
-                        release_conn(conn)
+                        conn.close()
                     else:
+                        # Auto-add rooms for apartments
                         if prop_type == 'apartment' and num_rooms > 0:
                             for i in range(1, num_rooms + 1):
                                 cur.execute(adapt_sql("""
@@ -575,7 +501,7 @@ def owner_add_property(user):
                                 """), (prop_id, f"R{i:02d}", 1, "standard", 2))
 
                         conn.commit()
-                        release_conn(conn)
+                        conn.close()
                         st.success("✅ Property submitted for admin approval!")
                         if prop_type == 'apartment' and num_rooms > 0:
                             st.info(f"🛏️ {num_rooms} rooms added. You can manage them from 'My Properties'.")
@@ -585,9 +511,11 @@ def owner_bookings(user):
     owner_id = _int(user['id'])
     st.markdown('<div class="section-header">📋 Booking Requests</div>', unsafe_allow_html=True)
 
+    # FIX #1: use df_query
     df = df_query("""
         SELECT b.id, u.name as guest_name, u.phone as guest_phone, u.email as guest_email,
-               p.title as property, r.room_number, b.check_in, b.check_out,
+               p.title as property, p.is_active as prop_is_active,
+               r.room_number, b.check_in, b.check_out,
                b.booking_type, b.total_price, b.down_payment, b.balance_due,
                b.status, b.payment_method, b.payment_status, b.special_requests, b.created_at,
                COALESCE(b.is_open_ended, 0) as is_open_ended
@@ -603,6 +531,7 @@ def owner_bookings(user):
         st.info("No bookings for your properties yet.")
         return
 
+    # FIX #6: Normalize numeric columns — psycopg2 may return Decimal types
     for col in ['id', 'total_price', 'down_payment', 'balance_due']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
@@ -629,15 +558,16 @@ def owner_bookings(user):
                     st.markdown(f"**Type:** {row['booking_type'].title()}")
                     st.markdown(f"**Total:** ₱{float(row['total_price'] or 0):,.0f}")
 
+                    # Down payment breakdown
                     down = row.get('down_payment') or 0
                     balance = row.get('balance_due') or 0
                     if down > 0:
                         pay_icon = "🌐" if row['payment_method'] == 'online' else "🏦"
                         status_map = {
-                            'down_paid':        ('✅ Down paid',        '#dcfce7', '#16a34a'),
-                            'walk_in_pending':  ('⏳ Walk-in pending',  '#fef3c7', '#92400e'),
-                            'paid':             ('✅ Fully paid',        '#dcfce7', '#16a34a'),
-                            'unpaid':           ('❌ Unpaid',            '#fee2e2', '#991b1b'),
+                            'down_paid': ('✅ Down paid', '#dcfce7', '#16a34a'),
+                            'walk_in_pending': ('⏳ Walk-in pending', '#fef3c7', '#92400e'),
+                            'paid': ('✅ Fully paid', '#dcfce7', '#16a34a'),
+                            'unpaid': ('❌ Unpaid', '#fee2e2', '#991b1b'),
                         }
                         lbl, bg, fg = status_map.get(row['payment_status'], ('—', '#f3f4f6', '#374151'))
                         st.markdown(f"""
@@ -657,34 +587,46 @@ def owner_bookings(user):
                         st.markdown(f"**Notes:** {row['special_requests']}")
 
                 with col2:
+                    _prop_blocked = int(row.get('prop_is_active', 1)) == 0
                     if row['status'] == 'pending':
+                        # FIX #6: _int() ensures booking_id is Python int, not Decimal
                         booking_id = _int(row['id'])
-                        if st.button("✅ Accept", key=f"acc_{tab_key}_{booking_id}"):
-                            c = get_conn()
-                            cur = c.cursor()
-                            cur.execute(adapt_sql("UPDATE bookings SET status='confirmed' WHERE id=%s"), (booking_id,))
-                            c.commit(); release_conn(c)
-                            process_new_booking(booking_id)
-                            st.success("Booking confirmed! ML trends updated."); st.rerun()
+                        if _prop_blocked:
+                            st.markdown(
+                                "<div style='background:#fee2e2;border:1.5px solid #dc2626;border-radius:8px;"
+                                "padding:0.5rem 0.75rem;font-size:0.82rem;color:#991b1b;font-weight:600;'>"
+                                "🚫 Blocked by admin — cannot accept bookings</div>",
+                                unsafe_allow_html=True
+                            )
+                        else:
+                            if st.button("✅ Accept", key=f"acc_{tab_key}_{booking_id}"):
+                                c = get_conn()
+                                cur = c.cursor()
+                                cur.execute(adapt_sql("UPDATE bookings SET status='confirmed' WHERE id=%s"), (booking_id,))
+                                c.commit(); c.close()
+                                process_new_booking(booking_id)
+                                st.success("Booking confirmed! ML trends updated."); st.rerun()
                         if st.button("❌ Reject", key=f"rj_{tab_key}_{booking_id}"):
                             c = get_conn()
                             cur = c.cursor()
                             cur.execute(adapt_sql("UPDATE bookings SET status='cancelled' WHERE id=%s"), (booking_id,))
-                            c.commit(); release_conn(c); st.warning("Booking rejected."); st.rerun()
+                            c.commit(); c.close(); st.warning("Booking rejected."); st.rerun()
 
+                    # Mark walk-in down payment as received
                     if row['payment_status'] == 'walk_in_pending':
                         if st.button("💰 Mark Down Payment Received", key=f"dpaid_{tab_key}_{_int(row['id'])}"):
                             c = get_conn()
                             cur = c.cursor()
                             cur.execute(adapt_sql("UPDATE bookings SET payment_status='down_paid' WHERE id=%s"), (_int(row['id']),))
-                            c.commit(); release_conn(c); st.success("Down payment marked as received!"); st.rerun()
+                            c.commit(); c.close(); st.success("Down payment marked as received!"); st.rerun()
 
+                    # Mark full balance paid at check-in
                     if row['status'] == 'confirmed' and row['payment_status'] == 'down_paid':
                         if st.button("💵 Mark Balance Paid", key=f"balpaid_{tab_key}_{_int(row['id'])}"):
                             c = get_conn()
                             cur = c.cursor()
                             cur.execute(adapt_sql("UPDATE bookings SET payment_status='paid' WHERE id=%s"), (_int(row['id']),))
-                            c.commit(); release_conn(c); st.success("Marked as fully paid!"); st.rerun()
+                            c.commit(); c.close(); st.success("Marked as fully paid!"); st.rerun()
 
     with tab_all: render_bookings(df, 'all')
     with tab_pending: render_bookings(df[df['status'] == 'pending'], 'pending')
@@ -696,11 +638,13 @@ def owner_trends(user):
     st.markdown('<div class="section-header">📈 Property Trends & ML Insights</div>', unsafe_allow_html=True)
     st.caption("AI-powered trend analysis based on historical booking data and Philippine seasonal patterns.")
 
+    # FIX #7: Only rebuild if not already done this session — avoids hammering Supabase on every page visit
     if not st.session_state.get('_ml_rebuilt'):
         from ml_model import rebuild_booking_history_from_real_data
         rebuild_booking_history_from_real_data()
         st.session_state['_ml_rebuilt'] = True
 
+    # FIX #1: use df_query
     props = df_query(
         "SELECT id, title, city, type FROM properties WHERE owner_id=%s AND status='approved'",
         params=[owner_id]
@@ -711,6 +655,7 @@ def owner_trends(user):
         st.info("You have no approved properties yet. Once approved, trend data will appear here.")
         return
 
+    # ── Data quality + accuracy panel ──────────────────────────────────────────
     dq = get_data_quality_report()
     bt = run_backtest()
 
@@ -764,6 +709,7 @@ def owner_trends(user):
                 )
 
     st.markdown("---")
+    # ── Month-aware trend comparison for owner's properties ───────────────────
     MONTH_NAMES = ['January','February','March','April','May','June',
                    'July','August','September','October','November','December']
     current_month = datetime.now().month
@@ -793,13 +739,22 @@ def owner_trends(user):
         col_c1, col_c2 = st.columns(2)
         with col_c1:
             st.markdown("**📊 Trend Score by Property**")
-            st.bar_chart(df_my.set_index('short_title')['trend_score'], height=260, color="#1a3c5e")
+            st.bar_chart(
+                df_my.set_index('short_title')['trend_score'],
+                height=260,
+                color="#1a3c5e"
+            )
             st.caption("Higher = AI expects more demand this month")
         with col_c2:
             st.markdown("**🏠 Predicted Bookings**")
-            st.bar_chart(df_my.set_index('short_title')['predicted_bookings'], height=260, color="#e8a020")
+            st.bar_chart(
+                df_my.set_index('short_title')['predicted_bookings'],
+                height=260,
+                color="#e8a020"
+            )
             st.caption("Based on historical same-month avg × seasonal weight × growth trend")
 
+        # Ranked cards
         st.markdown(f"**🏆 Ranking for {selected_month_name}**")
         cols = st.columns(min(len(my_trends), 3))
         for i, t in enumerate(my_trends):
@@ -813,7 +768,7 @@ def owner_trends(user):
                     <div style="background:{bg};border-radius:16px;
                                 padding:1.25rem;color:white;margin-bottom:1rem;position:relative">
                         <div style="font-size:0.72rem;opacity:0.7;text-transform:uppercase;letter-spacing:0.08em">{medal} Trend Score</div>
-                        <div style="font-size:2.2rem;font-weight:700;">—</div>
+                        <div style="font-size:2.2rem;font-weight:700;font-family:'Playfair Display',serif">—</div>
                         <div style="font-weight:600;font-size:0.95rem;margin:0.2rem 0">{t['title']}</div>
                         <div style="font-size:0.8rem;opacity:0.85">
                             📍 {t['city']}<br>
@@ -827,7 +782,9 @@ def owner_trends(user):
                     <div style="background:{bg};border-radius:16px;
                                 padding:1.25rem;color:white;margin-bottom:1rem;position:relative">
                         <div style="font-size:0.72rem;opacity:0.7;text-transform:uppercase;letter-spacing:0.08em">{medal} Trend Score</div>
-                        <div style="font-size:2.2rem;font-weight:700;">{t['trend_score']}</div>
+                        <div style="font-size:2.2rem;font-weight:700;font-family:'Playfair Display',serif">
+                            {t['trend_score']}
+                        </div>
                         <div style="font-weight:600;font-size:0.95rem;margin:0.2rem 0">{t['title']}</div>
                         <div style="font-size:0.8rem;opacity:0.85">
                             📍 {t['city']}<br>
@@ -840,6 +797,7 @@ def owner_trends(user):
                     </div>
                     """, unsafe_allow_html=True)
 
+        # How scores change across all 12 months — sparkline table
         st.markdown("---")
         st.markdown("### 📆 Full Year Trend Score Heatmap — All Your Properties")
         st.caption("See how each property's ML trend score shifts month by month, learned from past booking patterns")
@@ -871,12 +829,15 @@ def owner_trends(user):
             st.caption("🔴 ≥70 hot  🟡 40–69 warm  🔵 <40 cool — higher score = more demand expected that month")
 
     st.markdown("---")
+
+    # ── Per-property deep dive ────────────────────────────────────────────────
     st.markdown("### 📊 Deep Dive — Historical + 6-Month Forecast")
     selected_title = st.selectbox("Select a property to analyze:", props['title'].tolist())
     _match = props[props['title'] == selected_title]
     selected_row = _match.iloc[0] if not _match.empty else props.iloc[0]
     pid = _int(pd.to_numeric(selected_row['id'], errors='coerce') or 0)
 
+    # FIX #1: use df_query
     hist = df_query("""
         SELECT month, year, total_bookings, total_revenue, avg_occupancy
         FROM booking_history
@@ -887,10 +848,12 @@ def owner_trends(user):
     if hist.empty:
         st.info("No historical data available for this property yet.")
     else:
+        # Coerce all numeric columns from Decimal/string
         for col in ['month', 'year', 'total_bookings', 'total_revenue', 'avg_occupancy']:
             hist[col] = pd.to_numeric(hist[col], errors='coerce').fillna(0)
         hist['year']  = hist['year'].astype(int)
         hist['month'] = hist['month'].astype(int)
+
         hist['period'] = hist.apply(
             lambda r: datetime(_int(r['year']), _int(r['month']), 1).strftime("%b %Y"), axis=1
         )
@@ -901,25 +864,34 @@ def owner_trends(user):
         with tab1:
             st.markdown(f"**Monthly Bookings — {selected_title}**")
             st.caption("Past booking volume by month across all recorded years")
-            st.bar_chart(hist.tail(24).set_index('period')['total_bookings'], height=300)
+            hist_recent = hist.tail(24)
+            st.bar_chart(hist_recent.set_index('period')['total_bookings'], height=300)
+
             col_a, col_b, col_c = st.columns(3)
-            with col_a: st.metric("Avg Bookings/Month", f"{hist['total_bookings'].mean():.1f}")
+            with col_a:
+                st.metric("Avg Bookings/Month", f"{hist['total_bookings'].mean():.1f}")
             with col_b:
                 peak = hist.loc[hist['total_bookings'].idxmax()]
                 st.metric("Peak Month", f"{peak['period']}", f"{int(peak['total_bookings'])} bookings")
-            with col_c: st.metric("Avg Occupancy", f"{hist['avg_occupancy_pct'].mean():.1f}%")
+            with col_c:
+                st.metric("Avg Occupancy", f"{hist['avg_occupancy_pct'].mean():.1f}%")
 
         with tab2:
             st.markdown(f"**Monthly Revenue — {selected_title}**")
             st.caption("Total revenue earned per month based on historical data")
-            st.line_chart(hist.tail(24).set_index('period')['total_revenue'], height=300)
+            hist_recent = hist.tail(24)
+            st.line_chart(hist_recent.set_index('period')['total_revenue'], height=300)
+
             total_rev = hist['total_revenue'].sum()
-            avg_rev   = hist['total_revenue'].mean()
-            best_rev  = hist.loc[hist['total_revenue'].idxmax()]
+            avg_rev = hist['total_revenue'].mean()
+            best_rev = hist.loc[hist['total_revenue'].idxmax()]
             col_a, col_b, col_c = st.columns(3)
-            with col_a: st.metric("Total Revenue (All Time)", f"₱{total_rev:,.0f}")
-            with col_b: st.metric("Avg Revenue/Month", f"₱{avg_rev:,.0f}")
-            with col_c: st.metric("Best Month", best_rev['period'], f"₱{best_rev['total_revenue']:,.0f}")
+            with col_a:
+                st.metric("Total Revenue (All Time)", f"₱{total_rev:,.0f}")
+            with col_b:
+                st.metric("Avg Revenue/Month", f"₱{avg_rev:,.0f}")
+            with col_c:
+                st.metric("Best Month", best_rev['period'], f"₱{best_rev['total_revenue']:,.0f}")
 
         with tab3:
             st.markdown(f"**6-Month Forecast — {selected_title}**")
@@ -927,6 +899,7 @@ def owner_trends(user):
             forecast = get_monthly_forecast(pid)
             if forecast:
                 df_f = pd.DataFrame(forecast)
+
                 col_chart1, col_chart2 = st.columns(2)
                 with col_chart1:
                     st.markdown("**Predicted Bookings**")
@@ -934,17 +907,23 @@ def owner_trends(user):
                 with col_chart2:
                     st.markdown("**Predicted Occupancy Rate (%)**")
                     st.line_chart(df_f.set_index('month')['occupancy_rate'], height=250)
+
                 st.markdown("**Forecast Summary**")
                 st.dataframe(
                     df_f.rename(columns={
-                        'month': 'Month', 'predicted_bookings': 'Est. Bookings',
-                        'predicted_revenue': 'Est. Revenue (₱)', 'occupancy_rate': 'Occupancy (%)'
+                        'month': 'Month',
+                        'predicted_bookings': 'Est. Bookings',
+                        'predicted_revenue': 'Est. Revenue (₱)',
+                        'occupancy_rate': 'Occupancy (%)'
                     }),
-                    use_container_width=True, hide_index=True
+                    use_container_width=True,
+                    hide_index=True
                 )
+
                 peak_f = df_f.loc[df_f['predicted_bookings'].idxmax()]
                 st.success(f"🌟 Projected peak: **{peak_f['month']}** with ~{peak_f['predicted_bookings']} bookings and ₱{peak_f['predicted_revenue']:,.0f} revenue.")
 
+    # ── Seasonal pattern reminder ─────────────────────────────────────────────
     st.markdown("---")
     st.markdown("### 🗓️ Philippine Seasonal Booking Weights")
     st.caption("These seasonal weights power the ML model — higher = more demand expected")
@@ -954,6 +933,6 @@ def owner_trends(user):
         'Sep': 0.70, 'Oct': 0.75, 'Nov': 0.85, 'Dec': 1.00
     }
     df_season = pd.DataFrame({'Month': list(seasonal.keys()), 'Demand Weight': list(seasonal.values())})
-    st.bar_chart(df_season.set_index('Month')['Demand Weight'], height=200)
     current_month_abbr = datetime.now().strftime("%b")
+    st.bar_chart(df_season.set_index('Month')['Demand Weight'], height=200)
     st.caption(f"📍 Current month: **{current_month_abbr}** — weight: **{seasonal.get(current_month_abbr, '—')}**")
