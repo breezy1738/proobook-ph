@@ -558,7 +558,7 @@ def owner_bookings(user):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    tab_all, tab_pending, tab_confirmed = st.tabs(["All", "Pending", "Confirmed"])
+    tab_all, tab_pending, tab_confirmed, tab_refunds = st.tabs(["All", "Pending", "Confirmed", "🔄 Refund Requests"])
 
     def render_bookings(bdf, tab_key="all"):
         for _, row in bdf.iterrows():
@@ -653,6 +653,77 @@ def owner_bookings(user):
     with tab_all: render_bookings(df, 'all')
     with tab_pending: render_bookings(df[df['status'] == 'pending'], 'pending')
     with tab_confirmed: render_bookings(df[df['status'] == 'confirmed'], 'confirmed')
+
+    with tab_refunds:
+        st.markdown("#### 🔄 Automatic Refund Log")
+        st.caption("Refunds are processed instantly when a guest cancels an online-paid booking. No action needed from you.")
+
+        # Ensure table exists
+        _rc0 = get_conn()
+        try:
+            _rc0.cursor().execute("""
+                CREATE TABLE IF NOT EXISTS refunds (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    booking_id INTEGER NOT NULL UNIQUE,
+                    guest_id INTEGER NOT NULL,
+                    amount REAL NOT NULL,
+                    reason TEXT,
+                    status TEXT DEFAULT 'pending',
+                    owner_note TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    resolved_at TIMESTAMP,
+                    FOREIGN KEY (booking_id) REFERENCES bookings(id),
+                    FOREIGN KEY (guest_id) REFERENCES users(id)
+                )
+            """)
+            _rc0.commit()
+        finally:
+            if USE_POSTGRES:
+                release_conn(_rc0)
+            else:
+                _rc0.close()
+
+        rdf = df_query("""
+            SELECT rf.id as refund_id, rf.booking_id, rf.amount,
+                   rf.status as refund_status, rf.created_at as refunded_at,
+                   u.name as guest_name, u.email as guest_email,
+                   b.check_in, b.check_out, b.booking_type,
+                   p.title as property_title
+            FROM refunds rf
+            JOIN bookings b ON rf.booking_id = b.id
+            JOIN users u ON rf.guest_id = u.id
+            JOIN properties p ON b.property_id = p.id
+            WHERE p.owner_id=%s
+            ORDER BY rf.created_at DESC
+        """, params=[owner_id])
+
+        if rdf.empty:
+            st.info("No refunds issued yet for your properties.")
+        else:
+            _total_refunded = rdf['amount'].apply(float).sum()
+            rc1, rc2 = st.columns(2)
+            with rc1:
+                st.markdown(metric_card(len(rdf), "Total Refunds Issued", "🔄"), unsafe_allow_html=True)
+            with rc2:
+                st.markdown(metric_card(f"₱{_total_refunded:,.0f}", "Total Refunded", "💸"), unsafe_allow_html=True)
+
+            st.markdown("---")
+            for _, rrow in rdf.iterrows():
+                with st.expander(
+                    f"✅ {rrow['guest_name']} — ₱{float(rrow['amount']):,.0f} refunded | {str(rrow['refunded_at'])[:10]}",
+                    expanded=False
+                ):
+                    st.markdown(f"**Guest:** {rrow['guest_name']} ({rrow['guest_email']})")
+                    st.markdown(f"**Property:** {rrow['property_title']}")
+                    st.markdown(f"**Booking dates:** {rrow['check_in']} → {rrow.get('check_out') or 'Open-ended'}")
+                    st.markdown(f"**Booking type:** {rrow['booking_type'].title()}")
+                    st.markdown(f"""
+                    <div style="background:#dcfce7;border:1px solid #16a34a;border-radius:10px;
+                                padding:0.7rem 1rem;margin-top:0.4rem;font-size:0.88rem;color:#14532d;">
+                        ✅ <b>₱{float(rrow['amount']):,.0f} automatically refunded</b> to guest's card<br>
+                        <span style="opacity:0.75;font-size:0.8rem;">Processed: {str(rrow['refunded_at'])[:16]}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
 
 
 def owner_trends(user):
