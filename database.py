@@ -37,11 +37,12 @@ DATABASE_URL = _get_database_url()
 
 USE_POSTGRES = bool(DATABASE_URL)
 
+from sqlalchemy import create_engine, text as sa_text
+_SA_ENGINE = None  # lazy-initialised once
+
 if USE_POSTGRES:
     import psycopg2
     import psycopg2.extras          # RealDictCursor
-    from sqlalchemy import create_engine, text as sa_text
-    _SA_ENGINE = None  # lazy-initialised once
 else:
     import sqlite3
 
