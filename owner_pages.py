@@ -338,7 +338,7 @@ def _edit_property(row, idx=0):
             st.error(f"Failed to save: {e}")
 
 
-def add_property(user):
+def owner_add_property(user):
     owner_id = _int(user['id'])
     st.markdown('<div class="section-header">➕ Add New Property</div>', unsafe_allow_html=True)
 
