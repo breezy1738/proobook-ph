@@ -13,6 +13,22 @@ from auth import (
 )
 
 
+def _validate_ph_phone(phone: str) -> tuple:
+    """
+    Validate Philippine mobile numbers.
+    Accepts: 09XXXXXXXXX, +639XXXXXXXXX, 639XXXXXXXXX (11 or 12/13 digits)
+    Returns: (is_valid: bool, message: str)
+    """
+    import re
+    p = phone.strip().replace(" ", "").replace("-", "")
+    if not p:
+        return False, "Phone number is required."
+    pattern = r'^(\+63|63|0)9\d{9}$'
+    if not re.match(pattern, p):
+        return False, "Enter a valid PH mobile number (e.g. 09XX XXX XXXX or +639XX XXX XXXX)."
+    return True, ""
+
+
 def _inject_auth_css():
     st.markdown("""
     <style>
@@ -246,6 +262,11 @@ def show_login_page():
                     if user:
                         st.session_state["user"]      = user
                         st.session_state["logged_in"] = True
+                        msg.markdown(
+                            f'<div class="msg-success">✓ Welcome back, {user["name"].split()[0]}! Signing you in…</div>',
+                            unsafe_allow_html=True
+                        )
+                        import time; time.sleep(1)
                         st.rerun()
                     else:
                         msg.markdown('<div class="msg-error">Invalid email or password.</div>', unsafe_allow_html=True)
@@ -277,8 +298,11 @@ def show_login_page():
                 reg_submitted = st.form_submit_button("Create Account →", use_container_width=True)
 
             if reg_submitted:
+                _phone_ok, _phone_msg = _validate_ph_phone(reg_phone)
                 if not reg_name or not reg_email or not reg_password:
                     msg2.markdown('<div class="msg-error">Please fill in all required fields.</div>', unsafe_allow_html=True)
+                elif not _phone_ok:
+                    msg2.markdown(f'<div class="msg-error">{_phone_msg}</div>', unsafe_allow_html=True)
                 elif reg_password != reg_confirm:
                     msg2.markdown('<div class="msg-error">Passwords do not match.</div>', unsafe_allow_html=True)
                 elif len(reg_password) < 6:
