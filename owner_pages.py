@@ -1,4 +1,4 @@
-vimport streamlit as st
+import streamlit as st
 import pandas as pd
 import base64, json
 from database import get_conn, adapt_sql, df_query
@@ -432,57 +432,72 @@ def owner_add_property(user):
             if not title or not city or not address or nightly_price <= 0 or monthly_price <= 0:
                 st.error("Please fill in all required fields with valid prices.")
             else:
-                conn = get_conn()
-                cur = conn.cursor()
-                from database import USE_POSTGRES
-                # Encode uploaded photos
-                photos_json = None
-                if uploaded_photos:
-                    imgs = []
-                    for pf in uploaded_photos[:5]:
-                        pf.seek(0)
-                        b64 = base64.b64encode(pf.read()).decode('utf-8')
-                        imgs.append(f"data:{pf.type};base64,{b64}")
-                    photos_json = json.dumps(imgs) if imgs else None
-
+                # Check for duplicate title under same owner
+                _chk = get_conn()
+                _cur = _chk.cursor()
+                _cur.execute(adapt_sql(
+                    "SELECT id FROM properties WHERE owner_id=%s AND LOWER(title)=LOWER(%s)"
+                ), (owner_id, title.strip()))
+                _dup = _cur.fetchone()
                 if USE_POSTGRES:
-                    # FIX #2: RETURNING id fetch — use fetchone() safely with RealDictCursor
-                    cur.execute(adapt_sql("""
-                        INSERT INTO properties (owner_id, title, description, type, address, city, barangay, province,
-                        nightly_price, monthly_price, max_guests, bedrooms, bathrooms, amenities, images, status)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending') RETURNING id
-                    """), (owner_id, title, description, prop_type, address, city, barangay, province,
-                          nightly_price, monthly_price, max_guests, bedrooms, bathrooms, ",".join(amenities), photos_json))
-                    conn.commit()  # commit BEFORE fetchone on Postgres to avoid transaction issues
-                    returned = cur.fetchone()
-                    prop_id = _int(returned['id']) if returned else None
+                    release_conn(_chk)
                 else:
-                    cur.execute(adapt_sql("""
-                        INSERT INTO properties (owner_id, title, description, type, address, city, barangay, province,
-                        nightly_price, monthly_price, max_guests, bedrooms, bathrooms, amenities, images, status)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending')
-                    """), (owner_id, title, description, prop_type, address, city, barangay, province,
-                          nightly_price, monthly_price, max_guests, bedrooms, bathrooms, ",".join(amenities), photos_json))
-                    conn.commit()
-                    prop_id = cur.lastrowid
+                    _chk.close()
 
-                if prop_id is None:
-                    st.error("Failed to retrieve new property ID. Please try again.")
-                    conn.close()
-                    return
+                if _dup:
+                    st.error(f'❌ You already have a property named "{title.strip()}". Please use a different title.')
+                else:
+                    conn = get_conn()
+                    cur = conn.cursor()
+                    from database import USE_POSTGRES
 
-                # Auto-add rooms for apartments
-                if prop_type == 'apartment' and num_rooms > 0:
-                    for i in range(1, num_rooms + 1):
+                    # Encode uploaded photos
+                    photos_json = None
+                    if uploaded_photos:
+                        imgs = []
+                        for pf in uploaded_photos[:5]:
+                            pf.seek(0)
+                            b64 = base64.b64encode(pf.read()).decode('utf-8')
+                            imgs.append(f"data:{pf.type};base64,{b64}")
+                        photos_json = json.dumps(imgs) if imgs else None
+
+                    if USE_POSTGRES:
                         cur.execute(adapt_sql("""
-                            INSERT INTO rooms (property_id, room_number, floor, room_type, capacity)
-                            VALUES (%s,%s,%s,%s,%s)
-                        """), (prop_id, f"R{i:02d}", 1, "standard", 2))
+                            INSERT INTO properties (owner_id, title, description, type, address, city, barangay, province,
+                            nightly_price, monthly_price, max_guests, bedrooms, bathrooms, amenities, images, status)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending') RETURNING id
+                        """), (owner_id, title, description, prop_type, address, city, barangay, province,
+                              nightly_price, monthly_price, max_guests, bedrooms, bathrooms, ",".join(amenities), photos_json))
+                        conn.commit()
+                        returned = cur.fetchone()
+                        prop_id = _int(returned['id']) if returned else None
+                    else:
+                        cur.execute(adapt_sql("""
+                            INSERT INTO properties (owner_id, title, description, type, address, city, barangay, province,
+                            nightly_price, monthly_price, max_guests, bedrooms, bathrooms, amenities, images, status)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending')
+                        """), (owner_id, title, description, prop_type, address, city, barangay, province,
+                              nightly_price, monthly_price, max_guests, bedrooms, bathrooms, ",".join(amenities), photos_json))
+                        conn.commit()
+                        prop_id = cur.lastrowid
 
-                conn.commit(); conn.close()
-                st.success("✅ Property submitted for admin approval!")
-                if prop_type == 'apartment' and num_rooms > 0:
-                    st.info(f"🛏️ {num_rooms} rooms added. You can manage them from 'My Properties'.")
+                    if prop_id is None:
+                        st.error("Failed to retrieve new property ID. Please try again.")
+                        conn.close()
+                    else:
+                        # Auto-add rooms for apartments
+                        if prop_type == 'apartment' and num_rooms > 0:
+                            for i in range(1, num_rooms + 1):
+                                cur.execute(adapt_sql("""
+                                    INSERT INTO rooms (property_id, room_number, floor, room_type, capacity)
+                                    VALUES (%s,%s,%s,%s,%s)
+                                """), (prop_id, f"R{i:02d}", 1, "standard", 2))
+
+                        conn.commit()
+                        conn.close()
+                        st.success("✅ Property submitted for admin approval!")
+                        if prop_type == 'apartment' and num_rooms > 0:
+                            st.info(f"🛏️ {num_rooms} rooms added. You can manage them from 'My Properties'.")
 
 
 def owner_bookings(user):
