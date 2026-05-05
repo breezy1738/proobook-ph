@@ -4,9 +4,6 @@ Run with:  streamlit run main.py
 """
 
 import streamlit as st
-from database import init_db
-from ui_components import inject_css, sidebar_nav
-from auth_pages import show_login_page
 
 st.set_page_config(
     page_title="PropBook PH",
@@ -14,6 +11,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+from database import init_db
+from ui_components import inject_css, sidebar_nav
+from auth_pages import show_login_page
 
 # Initialise DB on first run
 init_db()
