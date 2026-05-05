@@ -74,7 +74,7 @@ def browse_properties(user=None):
                 )) as house_available_date
         FROM properties p
         JOIN users u ON p.owner_id = u.id
-        WHERE p.status='approved' AND p.is_active=1
+        WHERE p.status='approved' AND p.is_active=1 AND COALESCE(p.is_maintenance,0)=0
     """
     params = []
     if city_filter:
