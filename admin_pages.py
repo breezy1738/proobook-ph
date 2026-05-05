@@ -208,44 +208,7 @@ def _int(val):
         return 0
 
 
-def _admin_view_rooms(property_id):
-    """Same room viewer as owner, but admin cannot toggle — read-only + add/remove."""
-    rooms = df_query("SELECT * FROM rooms WHERE property_id=%s", params=[property_id])
 
-    st.markdown("**Rooms:**")
-    if rooms.empty:
-        st.info("No rooms added yet.")
-    else:
-        from datetime import date as _date
-        today = _date.today().isoformat()
-        active_bookings = df_query("""
-            SELECT room_id FROM bookings
-            WHERE property_id=%s AND status IN ('confirmed','pending')
-            AND room_id IS NOT NULL AND check_out > %s
-        """, params=[property_id, today])
-        booked_room_ids = set(active_bookings['room_id'].tolist()) if not active_bookings.empty else set()
-
-        rooms['id'] = pd.to_numeric(rooms['id'], errors='coerce').fillna(0).astype(int)
-        rooms['is_available'] = pd.to_numeric(rooms['is_available'], errors='coerce').fillna(0).astype(int)
-
-        for _, rm in rooms.iterrows():
-            col1, col2, col3 = st.columns([2, 1, 1])
-            with col1:
-                st.markdown(f"🛏️ Room **{rm['room_number']}** — Floor {rm['floor']} — {rm['room_type'].title()} (Cap: {rm['capacity']})")
-            with col2:
-                if rm['is_available'] == 0:
-                    st.markdown("🔧 Closed (maintenance)")
-                elif _int(rm['id']) in booked_room_ids:
-                    st.markdown("📅 Booked")
-                else:
-                    st.markdown("✅ Available")
-            with col3:
-                if st.button("🗑️ Remove", key=f"adm_rm_{rm['id']}"):
-                    c = get_conn()
-                    cur = c.cursor()
-                    cur.execute(adapt_sql("DELETE FROM rooms WHERE id=%s"), (_int(rm['id']),))
-                    c.commit(); release_conn(c) if USE_POSTGRES else c.close()
-                    st.rerun()
 
 
 
@@ -310,53 +273,64 @@ def admin_properties():
                         c.commit(); release_conn(c) if USE_POSTGRES else c.close()
                         st.warning("Rejected."); st.rerun()
 
-            # ── Tabs ─────────────────────────────────────────────────────────
-            tabs = st.tabs(["📋 Details", "🛏️ Rooms"])
+            # ── Details ──────────────────────────────────────────────────────
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"**Owner:** {row['owner_name']}")
+                st.markdown(f"**Email:** {row['owner_email']}")
+                st.markdown(f"**Phone:** {row.get('owner_phone') or '—'}")
+                st.markdown(f"**City:** {row['city']}")
+                st.markdown(f"**Address:** {row.get('address', '')} {row.get('barangay', '')}")
+                st.markdown(f"**Province:** {row.get('province') or '—'}")
+                st.markdown(f"**Type:** {row['type'].title()}")
+                st.markdown(f"**Max Guests:** {_int(row['max_guests'])}")
+                st.markdown(f"**Bedrooms:** {_int(row['bedrooms'])} | **Bathrooms:** {_int(row['bathrooms'])}")
+            with col2:
+                st.markdown(f"**Nightly:** ₱{float(row['nightly_price']):,.0f}")
+                st.markdown(f"**Monthly:** ₱{float(row['monthly_price']):,.0f}")
+                st.markdown(f"**Status:** {status_badge(row['status'])}", unsafe_allow_html=True)
+                st.markdown(f"**Added:** {str(row['created_at'])[:10]}")
+                is_active = int(row.get('is_active') or 1)
+                active_label = "🟢 Active" if is_active else "🔴 Blocked"
+                st.markdown(f"**Listing:** {active_label}")
+                if row.get('amenities'):
+                    st.markdown("**Amenities:**")
+                    ams = row['amenities'].split(',')
+                    st.markdown(" ".join([f'<span class="amenity-tag">{a.strip()}</span>' for a in ams]), unsafe_allow_html=True)
+            if row.get('description'):
+                st.markdown(f"**Description:** {row['description']}")
 
-            with tabs[0]:
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown(f"**Owner:** {row['owner_name']}")
-                    st.markdown(f"**Email:** {row['owner_email']}")
-                    st.markdown(f"**Phone:** {row.get('owner_phone') or '—'}")
-                    st.markdown(f"**City:** {row['city']}")
-                    st.markdown(f"**Address:** {row.get('address', '')} {row.get('barangay', '')}")
-                    st.markdown(f"**Province:** {row.get('province') or '—'}")
-                    st.markdown(f"**Type:** {row['type'].title()}")
-                    st.markdown(f"**Max Guests:** {_int(row['max_guests'])}")
-                    st.markdown(f"**Bedrooms:** {_int(row['bedrooms'])} | **Bathrooms:** {_int(row['bathrooms'])}")
-                with col2:
-                    st.markdown(f"**Nightly:** ₱{float(row['nightly_price']):,.0f}")
-                    st.markdown(f"**Monthly:** ₱{float(row['monthly_price']):,.0f}")
-                    st.markdown(f"**Status:** {status_badge(row['status'])}", unsafe_allow_html=True)
-                    st.markdown(f"**Added:** {str(row['created_at'])[:10]}")
-                    active_label = "🟢 Active" if row.get('is_active') else "🔴 Inactive"
-                    st.markdown(f"**Listing:** {active_label}")
-                    if row.get('amenities'):
-                        st.markdown("**Amenities:**")
-                        ams = row['amenities'].split(',')
-                        st.markdown(" ".join([f'<span class="amenity-tag">{a.strip()}</span>' for a in ams]), unsafe_allow_html=True)
-                if row.get('description'):
-                    st.markdown(f"**Description:** {row['description']}")
+            # Booking summary
+            bdf = df_query("""
+                SELECT b.status, COUNT(*) as n, COALESCE(SUM(b.total_price),0) as rev
+                FROM bookings b WHERE b.property_id=%s GROUP BY b.status
+            """, params=[prop_id])
+            if not bdf.empty:
+                st.markdown("---")
+                st.markdown("**Booking Summary:**")
+                bcols = st.columns(len(bdf))
+                for i, (_, br) in enumerate(bdf.iterrows()):
+                    with bcols[i]:
+                        st.metric(br['status'].title(), int(br['n']), f"₱{float(br['rev']):,.0f}")
 
-                # Booking summary for this property
-                bdf = df_query("""
-                    SELECT b.status, COUNT(*) as n, COALESCE(SUM(b.total_price),0) as rev
-                    FROM bookings b WHERE b.property_id=%s GROUP BY b.status
-                """, params=[prop_id])
-                if not bdf.empty:
-                    st.markdown("---")
-                    st.markdown("**Booking Summary:**")
-                    bcols = st.columns(len(bdf))
-                    for i, (_, br) in enumerate(bdf.iterrows()):
-                        with bcols[i]:
-                            st.metric(br['status'].title(), int(br['n']), f"₱{float(br['rev']):,.0f}")
-
-            with tabs[1]:
-                if row['type'] == 'apartment':
-                    _admin_view_rooms(prop_id)
+            # ── Block / Unblock (approved properties only) ────────────────────
+            if row['status'] == 'approved':
+                st.markdown("---")
+                is_active = int(row.get('is_active') or 1)
+                if is_active:
+                    if st.button("🚫 Block Property", key=f"block_{prop_id}"):
+                        c = get_conn()
+                        cur = c.cursor()
+                        cur.execute(adapt_sql("UPDATE properties SET is_active=0 WHERE id=%s"), (prop_id,))
+                        c.commit(); release_conn(c) if USE_POSTGRES else c.close()
+                        st.warning("Property blocked — guests can no longer book it."); st.rerun()
                 else:
-                    st.info("🏠 House — no room management needed.")
+                    if st.button("✅ Unblock Property", key=f"unblock_{prop_id}"):
+                        c = get_conn()
+                        cur = c.cursor()
+                        cur.execute(adapt_sql("UPDATE properties SET is_active=1 WHERE id=%s"), (prop_id,))
+                        c.commit(); release_conn(c) if USE_POSTGRES else c.close()
+                        st.success("Property unblocked — guests can book it again."); st.rerun()
 
 
 
