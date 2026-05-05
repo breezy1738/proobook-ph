@@ -153,20 +153,20 @@ def owner_properties(user):
         }
         _sicon = _status_icons.get(row['status'], '•')
         _is_blocked = int(row.get('is_active', 1)) == 0
-        _is_maintenance = int(row.get('is_active', 1)) == 0 and row.get('status') == 'approved'
-        _blocked_label = " | 🚫 BLOCKED BY ADMIN" if _is_blocked else ""
-        with st.expander(f"{property_emoji(row['type'])} {row['title']} | {_sicon} {row['status'].title()}{_blocked_label}", expanded=False):
+        _is_maintenance = int(row.get('is_maintenance', 0)) == 1
+        _maint_label = " | 🔧 MAINTENANCE" if _is_maintenance else ""
+        _blocked_label = " | 🚫 BLOCKED" if _is_blocked else ""
+        with st.expander(f"{property_emoji(row['type'])} {row['title']} | {_sicon} {row['status'].title()}{_blocked_label}{_maint_label}", expanded=False):
             if _is_blocked and row.get('status') == 'approved':
                 st.error("🚫 This property has been **blocked by the admin**. Guests cannot view or book it until the admin unblocks it. Contact support if you believe this is a mistake.")
-            elif row['status'] == 'approved':
+            if row['status'] == 'approved':
                 # ── Under Maintenance toggle (owner-controlled) ────────────────
                 prop_id_m = _int(row['id'])
-                is_active_m = int(row.get('is_active', 1))
-                if is_active_m == 1:
+                if not _is_maintenance:
                     if st.button("🔧 Put Under Maintenance", key=f"maint_on_{prop_id_m}"):
                         c = get_conn()
                         cur = c.cursor()
-                        cur.execute(adapt_sql("UPDATE properties SET is_active=0 WHERE id=%s"), (prop_id_m,))
+                        cur.execute(adapt_sql("UPDATE properties SET is_maintenance=1 WHERE id=%s"), (prop_id_m,))
                         c.commit(); release_conn(c) if USE_POSTGRES else c.close()
                         st.warning("Property is now under maintenance — guests cannot book it."); st.rerun()
                 else:
@@ -174,9 +174,10 @@ def owner_properties(user):
                     if st.button("✅ Mark as Available", key=f"maint_off_{prop_id_m}"):
                         c = get_conn()
                         cur = c.cursor()
-                        cur.execute(adapt_sql("UPDATE properties SET is_active=1 WHERE id=%s"), (prop_id_m,))
+                        cur.execute(adapt_sql("UPDATE properties SET is_maintenance=0 WHERE id=%s"), (prop_id_m,))
                         c.commit(); release_conn(c) if USE_POSTGRES else c.close()
                         st.success("Property is now available for booking!"); st.rerun()
+
             tabs = st.tabs(["📋 Details", "🛏️ Rooms", "✏️ Edit"])
 
             with tabs[0]:
