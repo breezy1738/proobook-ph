@@ -128,22 +128,6 @@ def owner_dashboard(user):
 def owner_properties(user):
     owner_id = _int(user['id'])
     st.markdown('<div class="section-header">🏠 My Properties</div>', unsafe_allow_html=True)
-
-    # Ensure is_maintenance column exists (safe migration — runs once, no-op after)
-    try:
-        _mc = get_conn()
-        _cur = _mc.cursor()
-        if USE_POSTGRES:
-            _cur.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS is_maintenance INTEGER DEFAULT 0")
-        else:
-            _cols = [r[1] for r in _cur.execute("PRAGMA table_info(properties)").fetchall()]
-            if "is_maintenance" not in _cols:
-                _cur.execute("ALTER TABLE properties ADD COLUMN is_maintenance INTEGER DEFAULT 0")
-        _mc.commit()
-        release_conn(_mc)
-    except Exception:
-        pass
-
     # FIX #1: use df_query
     df = df_query(
         "SELECT * FROM properties WHERE owner_id=%s ORDER BY created_at DESC",
@@ -168,22 +152,21 @@ def owner_properties(user):
             'approved': '✅', 'pending': '⏳', 'rejected': '❌'
         }
         _sicon = _status_icons.get(row['status'], '•')
-        _is_blocked = int(row.get('is_active', 1)) == 0
-        _is_maintenance = int(row.get('is_maintenance', 0)) == 1
-        _maint_label = " | 🔧 MAINTENANCE" if _is_maintenance else ""
-        _blocked_label = " | 🚫 BLOCKED" if _is_blocked else ""
-        with st.expander(f"{property_emoji(row['type'])} {row['title']} | {_sicon} {row['status'].title()}{_blocked_label}{_maint_label}", expanded=False):
+        _raw_active = row.get('is_active'); _is_blocked = (int(_raw_active) == 0) if _raw_active is not None else False
+        _is_maintenance = int(row.get('is_active', 1)) == 0 and row.get('status') == 'approved'
+        _blocked_label = " | 🚫 BLOCKED BY ADMIN" if _is_blocked else ""
+        with st.expander(f"{property_emoji(row['type'])} {row['title']} | {_sicon} {row['status'].title()}{_blocked_label}", expanded=False):
             if _is_blocked:
-                st.error("🚫 This property has been **blocked by the admin**. Guests cannot view or book it until the admin unblocks it. Contact support if you believe this is a mistake.")
-
-            if row['status'] == 'approved' and not _is_blocked:
-                # ── Under Maintenance toggle (owner-controlled) ────────────────
+                st.error("🚫 This property has been **blocked by the admin**. You cannot edit it or put it under maintenance. Contact support if you believe this is a mistake.")
+            elif row['status'] == 'approved':
+                # ── Under Maintenance toggle (owner-controlled, only when NOT blocked) ──
                 prop_id_m = _int(row['id'])
-                if not _is_maintenance:
+                is_active_m = int(row.get('is_active', 1))
+                if is_active_m == 1:
                     if st.button("🔧 Put Under Maintenance", key=f"maint_on_{prop_id_m}"):
                         c = get_conn()
                         cur = c.cursor()
-                        cur.execute(adapt_sql("UPDATE properties SET is_maintenance=1 WHERE id=%s"), (prop_id_m,))
+                        cur.execute(adapt_sql("UPDATE properties SET is_active=0 WHERE id=%s"), (prop_id_m,))
                         c.commit(); release_conn(c) if USE_POSTGRES else c.close()
                         st.warning("Property is now under maintenance — guests cannot book it."); st.rerun()
                 else:
@@ -191,11 +174,10 @@ def owner_properties(user):
                     if st.button("✅ Mark as Available", key=f"maint_off_{prop_id_m}"):
                         c = get_conn()
                         cur = c.cursor()
-                        cur.execute(adapt_sql("UPDATE properties SET is_maintenance=0 WHERE id=%s"), (prop_id_m,))
+                        cur.execute(adapt_sql("UPDATE properties SET is_active=1 WHERE id=%s"), (prop_id_m,))
                         c.commit(); release_conn(c) if USE_POSTGRES else c.close()
                         st.success("Property is now available for booking!"); st.rerun()
-
-            # When blocked by admin: show Details only, lock Rooms and Edit
+            # Blocked: show Details only — no Rooms or Edit access
             if _is_blocked:
                 tabs = st.tabs(["📋 Details"])
             else:
