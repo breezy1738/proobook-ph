@@ -208,6 +208,7 @@ CREATE TABLE IF NOT EXISTS properties (
     images        TEXT,
     status        TEXT DEFAULT 'pending',
     is_active     INTEGER DEFAULT 1,
+    is_maintenance INTEGER DEFAULT 0,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -568,6 +569,14 @@ def migrate_db():
             if not c.fetchone():
                 c.execute(f"ALTER TABLE bookings ADD COLUMN {col} {definition}")
 
+        # Add is_maintenance to properties if missing (Postgres)
+        c.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='properties' AND column_name='is_maintenance'"
+        )
+        if not c.fetchone():
+            c.execute("ALTER TABLE properties ADD COLUMN is_maintenance INTEGER DEFAULT 0")
+
         # Ensure new tables exist
         for stmt in _PG_SCHEMA.strip().split(";"):
             stmt = stmt.strip()
@@ -586,6 +595,12 @@ def migrate_db():
         ]:
             if col not in existing_cols:
                 c.execute(f"ALTER TABLE bookings ADD COLUMN {col} {definition}")
+
+        # Add is_maintenance to properties if missing (SQLite)
+        prop_cols = [row[1] for row in c.execute("PRAGMA table_info(properties)").fetchall()]
+        if "is_maintenance" not in prop_cols:
+            c.execute("ALTER TABLE properties ADD COLUMN is_maintenance INTEGER DEFAULT 0")
+
         c.executescript(_SQLITE_SCHEMA)
 
     ph = _p()
