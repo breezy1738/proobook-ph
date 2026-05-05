@@ -311,13 +311,19 @@ def _save_booking(user, prop_id, prop_type, room_id,
 
         for k in ['show_booking_modal','booking_property_id','booking_property']:
             st.session_state.pop(k, None)
-        if booking_type_val == 'monthly':
-            checkout_msg = "Check out whenever you're ready — just notify the owner."
-        else:
-            checkout_msg = f"Balance ₱{balance_due:,.0f} due at check-in."
         if payment_method == 'online':
-            st.success(f"🎉 Booking confirmed! Down payment of ₱{down_payment:,.0f} charged. {checkout_msg}")
+            if payment_status == 'paid':
+                checkout_msg = "Your booking is fully paid — no balance remaining."
+            elif booking_type_val == 'monthly':
+                checkout_msg = "Balance due when you check out — just notify the owner."
+            else:
+                checkout_msg = f"Balance ₱{balance_due:,.0f} due at check-in."
+            if payment_status == 'paid':
+                st.success(f"🎉 Booking confirmed! Full payment of ₱{down_payment:,.0f} charged. {checkout_msg}")
+            else:
+                st.success(f"🎉 Booking confirmed! Down payment of ₱{down_payment:,.0f} charged. {checkout_msg}")
         else:
+            checkout_msg = f"Balance ₱{balance_due:,.0f} due at check-in." if booking_type_val != 'monthly' else "Balance due when you check out."
             st.success(f"🎉 Booking submitted! Please pay ₱{down_payment:,.0f} at the property office within 24 hours. {checkout_msg}")
         st.balloons()
         st.rerun()
@@ -591,7 +597,7 @@ def _booking_form(prop, user):
 
     special = st.text_area("Special Requests (optional)", key="bk_special")
 
-    st.markdown("**Down Payment Method** *(30% = ₱{:,.0f} due now)*".format(down_payment))
+    st.markdown("**Payment Method**")
     st.radio(
         "Payment Method", ["🚶 Walk-in", "💳 Online Card"],
         horizontal=True, key="bk_payment", label_visibility="collapsed"
@@ -599,18 +605,41 @@ def _booking_form(prop, user):
     _raw_payment = st.session_state.get("bk_payment", "🚶 Walk-in")
     payment_method_val = "walk-in" if "Walk-in" in _raw_payment else "online"
 
+    # Online payment amount choice
+    if payment_method_val == "online":
+        st.markdown("**How much would you like to pay now?**")
+        st.radio(
+            "Payment Amount",
+            [
+                f"💳 Down Payment — ₱{down_payment:,.0f} (30% now, ₱{balance_due:,.0f} at check-in)",
+                f"✅ Full Payment — ₱{total:,.0f} (pay everything now)",
+            ],
+            horizontal=False, key="bk_pay_amount", label_visibility="collapsed"
+        )
+        _raw_pay_amount = st.session_state.get("bk_pay_amount", "")
+        _pay_full = "Full Payment" in _raw_pay_amount
+        _charge_amount = total if _pay_full else down_payment
+        _payment_status_val = "paid" if _pay_full else "down_paid"
+        _balance_label = "₱0.00 — no balance remaining" if _pay_full else f"₱{balance_due:,.0f} due at check-in"
+    else:
+        _pay_full = False
+        _charge_amount = down_payment
+        _payment_status_val = "down_paid"
+
     st.markdown("---")
 
     if payment_method_val == "online":
+        _header_title = f"✅ Pay Full Amount — ₱{total:,.0f}" if _pay_full else f"💳 Pay Down Payment — ₱{down_payment:,.0f}"
+        _header_sub   = "No balance remaining after this payment." if _pay_full else f"Remaining ₱{balance_due:,.0f} due at check-in."
         st.markdown(f"""
         <div style="background:linear-gradient(135deg,#1a3c5e,#2563a8);border-radius:16px;
                     padding:1.5rem;margin-bottom:1rem;color:white">
             <div style="font-size:0.75rem;opacity:0.7;letter-spacing:0.1em">SECURE CARD PAYMENT</div>
             <div style="font-size:1.1rem;font-weight:600;margin-top:0.25rem">
-                💳 Pay Down Payment — ₱{down_payment:,.0f}
+                {_header_title}
             </div>
             <div style="font-size:0.8rem;opacity:0.75;margin-top:0.2rem">
-                Remaining ₱{balance_due:,.0f} due at check-in
+                {_header_sub}
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -652,8 +681,9 @@ def _booking_form(prop, user):
             with col_cvv_col:
                 cvv = st.text_input("🔒 CVV", placeholder="123", max_chars=4, type="password")
 
+            _btn_label = f"✅ Confirm & Pay ₱{_charge_amount:,.0f}" if _pay_full else f"💳 Confirm & Pay Down Payment ₱{_charge_amount:,.0f}"
             card_submitted = st.form_submit_button(
-                "✅ Confirm & Pay Down Payment",
+                _btn_label,
                 use_container_width=True,
             )
 
@@ -671,10 +701,12 @@ def _booking_form(prop, user):
             if errors:
                 st.error("❌ " + " | ".join(errors))
             else:
+                _actual_down = total if _pay_full else down_payment
+                _actual_balance = 0 if _pay_full else balance_due
                 _save_booking(user, prop_id, prop_type, room_id if prop_type == 'apartment' else None,
                               check_in, check_out_db, booking_type_val,
-                              subtotal, service_fee, total, down_payment, balance_due,
-                              "online", "down_paid",
+                              subtotal, service_fee, total, _actual_down, _actual_balance,
+                              "online", _payment_status_val,
                               st.session_state.get("bk_special", ""))
         return
 
@@ -797,39 +829,19 @@ def guest_bookings(user):
                     st.markdown(f"**Owner:** {row['owner_name']} — {row['owner_phone']}")
                     st.markdown(f"**Total Amount:** ₱{row['total_price']:,.0f}")
 
-                    down = float(row.get('down_payment') or 0)
-                    balance = float(row.get('balance_due') or 0)
-                    total_price = float(row.get('total_price') or 0)
-                    pstatus = row.get('payment_status', '')
-
-                    if pstatus == 'paid':
-                        # Fully paid — show green full paid box
+                    down = row.get('down_payment') or 0
+                    balance = row.get('balance_due') or 0
+                    if down > 0:
+                        pay_icon = "🌐" if row['payment_method'] == 'online' else "🏦"
+                        pay_label = "Paid online" if row['payment_status'] == 'down_paid' else "Walk-in pending"
+                        pay_color = "#16a34a" if row['payment_status'] == 'down_paid' else "#92400e"
+                        pay_bg = "#dcfce7" if row['payment_status'] == 'down_paid' else "#fef3c7"
                         st.markdown(f"""
-                        <div style="background:#dcfce7;border:1.5px solid #86efac;border-left:4px solid #16a34a;
-                                    border-radius:10px;padding:0.75rem 1rem;margin-top:0.5rem;font-size:0.88rem;">
-                            <div style="font-weight:700;color:#14532d;margin-bottom:0.35rem;">✅ Fully Paid</div>
-                            <div style="display:flex;justify-content:space-between;">
-                                <span style="color:#166534;">Total paid:</span>
-                                <span style="font-weight:700;color:#15803d;">₱{total_price:,.0f}</span>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    elif down > 0:
-                        pay_icon = "🌐" if row.get('payment_method') == 'online' else "🏦"
-                        if pstatus == 'down_paid':
-                            pay_label, pay_color, pay_bg = "Down Paid ✓", "#15803d", "#dcfce7"
-                            bal_label = "Balance due at check-in"
-                            box_bg, box_border = "#f0f4ff", "#bfdbfe"
-                        else:
-                            pay_label, pay_color, pay_bg = "Pending", "#92400e", "#fef3c7"
-                            bal_label = "Balance due at check-in"
-                            box_bg, box_border = "#fffbeb", "#fcd34d"
-                        st.markdown(f"""
-                        <div style="background:{box_bg};border:1.5px solid {box_border};
-                                    border-radius:10px;padding:0.75rem 1rem;margin-top:0.5rem;font-size:0.88rem;">
-                            <div style="font-weight:700;color:#1a3c5e;margin-bottom:0.4rem;">💳 Payment Breakdown</div>
-                            <div style="display:flex;justify-content:space-between;margin-bottom:0.3rem;">
-                                <span style="color:#6b7280;">Down payment (30%):</span>
+                        <div style="background:#f0f4ff;border-radius:10px;padding:0.75rem 1rem;
+                                    margin-top:0.5rem;font-size:0.88rem;">
+                            <div style="font-weight:700;color:#1a3c5e;margin-bottom:0.4rem;">💳 Down Payment (30%)</div>
+                            <div style="display:flex;justify-content:space-between;margin-bottom:0.2rem;">
+                                <span style="color:#6b7280;">Down paid:</span>
                                 <span style="font-weight:700;color:#2563a8;">₱{down:,.0f}
                                     &nbsp;<span style="background:{pay_bg};color:{pay_color};
                                         padding:0.1rem 0.5rem;border-radius:999px;font-size:0.75rem;font-weight:700;">
@@ -838,8 +850,8 @@ def guest_bookings(user):
                                 </span>
                             </div>
                             <div style="display:flex;justify-content:space-between;">
-                                <span style="color:#6b7280;">{bal_label}:</span>
-                                <span style="font-weight:600;color:#374151;">₱{balance:,.0f}</span>
+                                <span style="color:#6b7280;">Balance due at check-in:</span>
+                                <span style="font-weight:600;">₱{balance:,.0f}</span>
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
@@ -907,22 +919,17 @@ def guest_bookings(user):
                                 st.success("✅ Down payment successful!")
                                 st.rerun()
 
-                    if row.get('payment_status') == 'down_paid':
-                        balance = float(row.get('balance_due') or 0)
+                    if row['payment_status'] == 'down_paid':
+                        balance = row.get('balance_due') or 0
                         st.markdown(f"""
                         <div class="alert-box alert-success">
-                            💳 <b>Down Payment Confirmed</b><br>
-                            <small>Balance <b>₱{balance:,.0f}</b> due at check-in</small>
+                            ✅ Down payment confirmed<br>
+                            <small>Balance ₱{balance:,.0f} due at check-in</small>
                         </div>
                         """, unsafe_allow_html=True)
 
-                    if row.get('payment_status') == 'paid':
-                        st.markdown("""
-                        <div class="alert-box alert-success">
-                            ✅ <b>Fully Paid</b><br>
-                            <small>No balance remaining</small>
-                        </div>
-                        """, unsafe_allow_html=True)
+                    if row['payment_status'] == 'paid':
+                        st.markdown('<div class="alert-box alert-success">✅ Fully paid</div>', unsafe_allow_html=True)
 
                     if row['status'] == 'pending':
                         if st.button("❌ Cancel Booking", key=f"cancel_{tab_key}_{row['id']}"):
