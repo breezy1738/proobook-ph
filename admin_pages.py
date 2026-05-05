@@ -250,7 +250,7 @@ def admin_properties():
         _status_icons = {'approved': '✅', 'pending': '⏳', 'rejected': '❌'}
         _sicon = _status_icons.get(row['status'], '•')
         prop_id = _int(row['id'])
-        _is_blocked = int(row.get('is_active') or 1) == 0
+        _raw_ia = row.get('is_active'); _is_blocked = (int(_raw_ia) == 0) if _raw_ia is not None else False
         _blocked_tag = " | 🚫 BLOCKED" if _is_blocked else ""
 
         with st.expander(
@@ -258,7 +258,7 @@ def admin_properties():
             expanded=False
         ):
             if _is_blocked:
-                st.error("🚫 This property is currently **blocked**. Guests cannot view or book it.")
+                st.error("🚫 This property is currently **blocked**. The owner cannot edit it and guests cannot view or book it.")
             # ── Approve / Reject action bar (only shown for pending properties) ──
             if row['status'] == 'pending':
                 act_cols = st.columns([1, 1, 4])
@@ -294,7 +294,8 @@ def admin_properties():
                 st.markdown(f"**Monthly:** ₱{float(row['monthly_price']):,.0f}")
                 st.markdown(f"**Status:** {status_badge(row['status'])}", unsafe_allow_html=True)
                 st.markdown(f"**Added:** {str(row['created_at'])[:10]}")
-                is_active = int(row.get('is_active') or 1)
+                _ia = row.get('is_active')
+                is_active = 1 if _ia is None else int(_ia)
                 active_label = "🟢 Active" if is_active else "🔴 Blocked"
                 st.markdown(f"**Listing:** {active_label}")
                 if row.get('amenities'):
@@ -320,7 +321,9 @@ def admin_properties():
             # ── Block / Unblock (approved properties only) ────────────────────
             if row['status'] == 'approved':
                 st.markdown("---")
-                is_active = int(row.get('is_active') or 1)
+                # NOTE: must not use (row.get('is_active') or 1) — that turns 0 into 1 because 0 is falsy
+                _raw_active = row.get('is_active')
+                is_active = 1 if _raw_active is None else int(_raw_active)
                 if is_active:
                     if st.button("🚫 Block Property", key=f"block_{prop_id}"):
                         c = get_conn()
@@ -329,6 +332,7 @@ def admin_properties():
                         c.commit(); release_conn(c) if USE_POSTGRES else c.close()
                         st.warning("Property blocked — guests can no longer book it."); st.rerun()
                 else:
+                    st.warning("🚫 This property is currently **blocked**.")
                     if st.button("✅ Unblock Property", key=f"unblock_{prop_id}"):
                         c = get_conn()
                         cur = c.cursor()
