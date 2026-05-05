@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import base64, json
 from database import get_conn, adapt_sql, df_query
 from ui_components import metric_card, status_badge, property_emoji
 from ml_model import get_monthly_forecast, predict_trending_properties, predict_trending_by_month, run_backtest, get_data_quality_report, process_new_booking
@@ -14,6 +15,32 @@ def _int(val):
         return int(float(val))
     except (TypeError, ValueError):
         return 0
+
+
+
+def _encode_images(uploaded_files):
+    """Convert uploaded files to base64 JSON list for DB storage."""
+    imgs = []
+    for f in uploaded_files:
+        b64 = base64.b64encode(f.read()).decode('utf-8')
+        imgs.append(f"data:{f.type};base64,{b64}")
+    return json.dumps(imgs) if imgs else None
+
+
+def _show_property_photos(images_json, max_cols=3):
+    """Display property photos from JSON base64 string."""
+    if not images_json:
+        return
+    try:
+        imgs = json.loads(images_json)
+        if not imgs:
+            return
+        cols = st.columns(min(len(imgs), max_cols))
+        for i, img_data in enumerate(imgs):
+            with cols[i % max_cols]:
+                st.image(img_data, use_container_width=True)
+    except Exception:
+        pass
 
 
 def owner_dashboard(user):
@@ -245,6 +272,32 @@ def _edit_property(row, idx=0):
         st.number_input("Bathrooms",         value=max(1,   _int(row['bathrooms'])),         min_value=1,   key=f"{sk}_baths")
     st.text_input("Amenities (comma-separated)", value=row['amenities'] or "", key=f"{sk}_amenities")
 
+    st.markdown("---")
+    st.markdown("**📸 Property Photos**")
+
+    # Show existing photos
+    existing_images = row.get('images') or ''
+    if existing_images:
+        st.caption("Current photos:")
+        _show_property_photos(existing_images, max_cols=3)
+        if st.checkbox("🗑️ Remove all existing photos", key=f"{sk}_remove_photos"):
+            existing_images = ''
+    else:
+        st.caption("No photos yet.")
+
+    new_photos = st.file_uploader(
+        "Upload new photos (JPG, PNG — max 5)",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=True,
+        key=f"{sk}_photos"
+    )
+    if new_photos:
+        st.caption(f"{len(new_photos)} photo(s) selected")
+        preview_cols = st.columns(min(len(new_photos), 3))
+        for pi, pf in enumerate(new_photos):
+            with preview_cols[pi % 3]:
+                st.image(pf, use_container_width=True)
+
     if st.button("💾 Save Changes", key=f"{sk}_save"):
         title       = st.session_state[f"{sk}_title"]
         description = st.session_state[f"{sk}_desc"]
@@ -254,14 +307,28 @@ def _edit_property(row, idx=0):
         bedrooms    = st.session_state[f"{sk}_beds"]
         bathrooms   = st.session_state[f"{sk}_baths"]
         amenities   = st.session_state[f"{sk}_amenities"]
+
+        # Merge existing + new photos
+        try:
+            existing_list = json.loads(existing_images) if existing_images else []
+        except Exception:
+            existing_list = []
+        if new_photos:
+            for pf in new_photos[:5]:
+                pf.seek(0)
+                b64 = base64.b64encode(pf.read()).decode('utf-8')
+                existing_list.append(f"data:{pf.type};base64,{b64}")
+        final_images = json.dumps(existing_list) if existing_list else None
+
         try:
             c = get_conn()
             cur = c.cursor()
             cur.execute(adapt_sql(
                 "UPDATE properties SET title=%s, description=%s, nightly_price=%s, monthly_price=%s, "
-                "max_guests=%s, bedrooms=%s, bathrooms=%s, amenities=%s WHERE id=%s"
+                "max_guests=%s, bedrooms=%s, bathrooms=%s, amenities=%s, images=%s WHERE id=%s"
             ), (str(title), str(description), float(nightly), float(monthly),
-                _int(max_guests), _int(bedrooms), _int(bathrooms), str(amenities), prop_id))
+                _int(max_guests), _int(bedrooms), _int(bathrooms), str(amenities),
+                final_images, prop_id))
             c.commit()
             cur.close()
             c.close()
@@ -271,12 +338,27 @@ def _edit_property(row, idx=0):
             st.error(f"Failed to save: {e}")
 
 
-def owner_add_property(user):
+def add_property(user):
     owner_id = _int(user['id'])
     st.markdown('<div class="section-header">➕ Add New Property</div>', unsafe_allow_html=True)
 
     prop_type = st.selectbox("Property Type *", ["apartment", "house"],
                              format_func=lambda x: "🏢 Apartment" if x == "apartment" else "🏠 House")
+
+    st.markdown("**📸 Property Photos**")
+    st.caption("Upload up to 5 photos (JPG, PNG). Photos help guests choose your property!")
+    uploaded_photos = st.file_uploader(
+        "Choose photos",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=True,
+        key="add_prop_photos"
+    )
+    if uploaded_photos:
+        prev_cols = st.columns(min(len(uploaded_photos), 3))
+        for pi, pf in enumerate(uploaded_photos[:5]):
+            with prev_cols[pi % 3]:
+                st.image(pf, use_container_width=True)
+        st.caption(f"✅ {min(len(uploaded_photos), 5)} photo(s) ready to upload")
 
     with st.form("add_property_form"):
         col1, col2 = st.columns(2)
@@ -321,24 +403,34 @@ def owner_add_property(user):
                 conn = get_conn()
                 cur = conn.cursor()
                 from database import USE_POSTGRES
+                # Encode uploaded photos
+                photos_json = None
+                if uploaded_photos:
+                    imgs = []
+                    for pf in uploaded_photos[:5]:
+                        pf.seek(0)
+                        b64 = base64.b64encode(pf.read()).decode('utf-8')
+                        imgs.append(f"data:{pf.type};base64,{b64}")
+                    photos_json = json.dumps(imgs) if imgs else None
+
                 if USE_POSTGRES:
                     # FIX #2: RETURNING id fetch — use fetchone() safely with RealDictCursor
                     cur.execute(adapt_sql("""
                         INSERT INTO properties (owner_id, title, description, type, address, city, barangay, province,
-                        nightly_price, monthly_price, max_guests, bedrooms, bathrooms, amenities, status)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending') RETURNING id
+                        nightly_price, monthly_price, max_guests, bedrooms, bathrooms, amenities, images, status)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending') RETURNING id
                     """), (owner_id, title, description, prop_type, address, city, barangay, province,
-                          nightly_price, monthly_price, max_guests, bedrooms, bathrooms, ",".join(amenities)))
+                          nightly_price, monthly_price, max_guests, bedrooms, bathrooms, ",".join(amenities), photos_json))
                     conn.commit()  # commit BEFORE fetchone on Postgres to avoid transaction issues
                     returned = cur.fetchone()
                     prop_id = _int(returned['id']) if returned else None
                 else:
                     cur.execute(adapt_sql("""
                         INSERT INTO properties (owner_id, title, description, type, address, city, barangay, province,
-                        nightly_price, monthly_price, max_guests, bedrooms, bathrooms, amenities, status)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending')
+                        nightly_price, monthly_price, max_guests, bedrooms, bathrooms, amenities, images, status)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending')
                     """), (owner_id, title, description, prop_type, address, city, barangay, province,
-                          nightly_price, monthly_price, max_guests, bedrooms, bathrooms, ",".join(amenities)))
+                          nightly_price, monthly_price, max_guests, bedrooms, bathrooms, ",".join(amenities), photos_json))
                     conn.commit()
                     prop_id = cur.lastrowid
 
