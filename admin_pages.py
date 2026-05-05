@@ -7,6 +7,38 @@ from ml_model import (predict_trending_properties, predict_trending_by_month, ge
                       rebuild_booking_history_from_real_data)
 from datetime import datetime
 
+
+def _ensure_refunds_table():
+    """Create the refunds table if it doesn't exist (dialect-aware)."""
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        _pk = "SERIAL PRIMARY KEY" if USE_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS refunds (
+                id {_pk},
+                booking_id INTEGER NOT NULL UNIQUE,
+                guest_id INTEGER NOT NULL,
+                amount REAL NOT NULL,
+                reason TEXT,
+                status TEXT DEFAULT 'pending',
+                owner_note TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                resolved_at TIMESTAMP,
+                FOREIGN KEY (booking_id) REFERENCES bookings(id),
+                FOREIGN KEY (guest_id) REFERENCES users(id)
+            )
+        """)
+        conn.commit()
+    finally:
+        if USE_POSTGRES:
+            release_conn(conn)
+        else:
+            conn.close()
+
+
+_ensure_refunds_table()
+
 def admin_dashboard():
     rebuild_booking_history_from_real_data()
 
@@ -403,32 +435,6 @@ def admin_bookings():
     st.markdown("---")
     st.markdown("#### 🔄 Automatic Refund Log")
     st.caption("Refunds are issued instantly when a guest cancels an online-paid booking. No manual intervention required.")
-
-    # Ensure table exists
-    _acx = get_conn()
-    try:
-        _pk = "SERIAL PRIMARY KEY" if USE_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
-        _acx.cursor().execute(f"""
-            CREATE TABLE IF NOT EXISTS refunds (
-                id {_pk},
-                booking_id INTEGER NOT NULL UNIQUE,
-                guest_id INTEGER NOT NULL,
-                amount REAL NOT NULL,
-                reason TEXT,
-                status TEXT DEFAULT 'pending',
-                owner_note TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                resolved_at TIMESTAMP,
-                FOREIGN KEY (booking_id) REFERENCES bookings(id),
-                FOREIGN KEY (guest_id) REFERENCES users(id)
-            )
-        """)
-        _acx.commit()
-    finally:
-        if USE_POSTGRES:
-            release_conn(_acx)
-        else:
-            _acx.close()
 
     rdf = df_query("""
         SELECT rf.id, rf.booking_id, rf.amount, rf.status as refund_status,
