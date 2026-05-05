@@ -48,19 +48,19 @@ elif role == "owner":
         owner_add_property, owner_trends,
     )
     pages = {
-        "Dashboard":        owner_dashboard,
-        "My Properties":    owner_properties,
-        "My Bookings":      owner_bookings,
-        "Add Property":     owner_add_property,
-        "Property Trends":  owner_trends,
+        "Dashboard":        lambda: owner_dashboard(user),
+        "My Properties":    lambda: owner_properties(user),
+        "My Bookings":      lambda: owner_bookings(user),
+        "Add Property":     lambda: owner_add_property(user),
+        "Property Trends":  lambda: owner_trends(user),
     }
 
 else:  # guest
     from guest_pages import browse_properties, guest_bookings, guest_profile
     pages = {
         "Browse Properties": lambda: browse_properties(user),
-        "My Bookings":       guest_bookings,
-        "My Profile":        guest_profile,
+        "My Bookings":       lambda: guest_bookings(user),
+        "My Profile":        lambda: guest_profile(user),
     }
 
 fn = pages.get(choice)
