@@ -18,33 +18,33 @@ import math
 from contextlib import contextmanager
 
 # ── Driver selection ───────────────────────────────────────────────────────────
-def _get_database_url() -> str:
-    """
-    Read DATABASE_URL from environment or Streamlit secrets.
-    On Streamlit Cloud, secrets are NOT automatically injected into os.environ,
-    so we must check st.secrets explicitly as a fallback.
-    """
-    url = os.environ.get("DATABASE_URL", "")
-    if not url:
-        try:
-            import streamlit as st
-            url = st.secrets["DATABASE_URL"] if "DATABASE_URL" in st.secrets else ""
-        except Exception:
-            pass
-    return url
-
-DATABASE_URL = _get_database_url()
-
-USE_POSTGRES = bool(DATABASE_URL)
-
+# Always import both drivers — SQLAlchemy is needed for df_query regardless of backend.
+# psycopg2 and sqlite3 are imported unconditionally so no NameError can occur at runtime.
 from sqlalchemy import create_engine, text as sa_text
 _SA_ENGINE = None  # lazy-initialised once
 
-if USE_POSTGRES:
+try:
     import psycopg2
-    import psycopg2.extras          # RealDictCursor
-else:
-    import sqlite3
+    import psycopg2.extras
+    _PSYCOPG2_AVAILABLE = True
+except ImportError:
+    _PSYCOPG2_AVAILABLE = False
+
+import sqlite3  # always available in Python stdlib
+
+
+def _get_database_url() -> str:
+    """
+    Read DATABASE_URL — only from os.environ to avoid touching st.secrets at
+    import time (which crashes before st.set_page_config is called).
+    Streamlit Cloud exposes secrets as env vars when you add them in the
+    dashboard under Settings → Secrets.
+    """
+    return os.environ.get("DATABASE_URL", "")
+
+
+DATABASE_URL = _get_database_url()
+USE_POSTGRES = bool(DATABASE_URL) and _PSYCOPG2_AVAILABLE
 
 
 # ─────────────────────────────────────────────────────────────────────────────
