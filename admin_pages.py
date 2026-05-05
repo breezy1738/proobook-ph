@@ -399,6 +399,58 @@ def admin_bookings():
     st.caption("👁️ View only — admin cannot edit bookings per policy")
     st.dataframe(df, use_container_width=True, hide_index=True)
 
+    # ── Automatic Refund Log ───────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("#### 🔄 Automatic Refund Log")
+    st.caption("Refunds are issued instantly when a guest cancels an online-paid booking. No manual intervention required.")
+
+    # Ensure table exists
+    _acx = get_conn()
+    try:
+        _acx.cursor().execute("""
+            CREATE TABLE IF NOT EXISTS refunds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                booking_id INTEGER NOT NULL UNIQUE,
+                guest_id INTEGER NOT NULL,
+                amount REAL NOT NULL,
+                reason TEXT,
+                status TEXT DEFAULT 'pending',
+                owner_note TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                resolved_at TIMESTAMP,
+                FOREIGN KEY (booking_id) REFERENCES bookings(id),
+                FOREIGN KEY (guest_id) REFERENCES users(id)
+            )
+        """)
+        _acx.commit()
+    finally:
+        if USE_POSTGRES:
+            release_conn(_acx)
+        else:
+            _acx.close()
+
+    rdf = df_query("""
+        SELECT rf.id, rf.booking_id, rf.amount, rf.status as refund_status,
+               rf.created_at as refunded_at,
+               u.name as guest_name, p.title as property_title,
+               ow.name as owner_name
+        FROM refunds rf
+        JOIN bookings b ON rf.booking_id = b.id
+        JOIN users u ON rf.guest_id = u.id
+        JOIN properties p ON b.property_id = p.id
+        JOIN users ow ON p.owner_id = ow.id
+        ORDER BY rf.created_at DESC
+    """)
+
+    if rdf.empty:
+        st.info("No refunds issued on the platform yet.")
+    else:
+        _total = rdf['amount'].apply(float).sum()
+        rc1, rc2 = st.columns(2)
+        with rc1: st.markdown(metric_card(len(rdf), "Total Refunds", "🔄"), unsafe_allow_html=True)
+        with rc2: st.markdown(metric_card(f"₱{_total:,.0f}", "Total Refunded", "💸"), unsafe_allow_html=True)
+        st.dataframe(rdf, use_container_width=True, hide_index=True)
+
 
 def admin_trends():
     st.markdown('<div class="section-header">📈 Platform Trends & ML Insights</div>', unsafe_allow_html=True)
